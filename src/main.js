@@ -50,6 +50,9 @@ const hud = new Hud();
 const sound = new Sound();
 sound.musicOn = settings.music ?? true;
 
+// keep the sound awake: iOS can suspend it after app switches, calls or the lock screen
+for (const ev of ['touchend', 'click', 'keydown']) addEventListener(ev, () => sound.wake(), { passive: true, capture: true });
+
 const ui = {
   fade(on) { $('fade').classList.toggle('on', on); },
   showComplete(st) {

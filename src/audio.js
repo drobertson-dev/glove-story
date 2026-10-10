@@ -1,4 +1,20 @@
 // All sound is synthesised with Web Audio, so there are no files to load.
+
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+// half a second of silence as a WAV, for the old-iPhone mute-switch workaround
+function silentWavUrl() {
+  const rate = 8000, n = rate / 2;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+
 export class Sound {
   constructor() {
     this.ctx = null;
@@ -7,7 +23,9 @@ export class Sound {
     this.garibT = 0;
   }
 
+  // Must be called from a tap/click/keypress: browsers only allow sound to start then.
   unlock() {
+    this.preferPlayback();
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
@@ -26,11 +44,47 @@ export class Sound {
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
       this.startMusic();
       document.addEventListener('visibilitychange', () => {
-        if (document.hidden) this.ctx.suspend();
-        else this.ctx.resume();
+        if (document.hidden) {
+          this.ctx.suspend();
+          if (this.silentEl) this.silentEl.pause();
+        } else this.ctx.resume().catch(() => {});
       });
     }
-    if (this.ctx.state === 'suspended') this.ctx.resume();
+    this.wake();
+    // iOS only fully unlocks once a sound is actually started inside the gesture
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.ctx.createBuffer(1, 1, 22050);
+    src.connect(this.ctx.destination);
+    src.start(0);
+  }
+
+  // After switching apps, a phone call or a lock screen, iOS leaves the audio
+  // suspended/"interrupted" until the next tap. Call this on every tap.
+  wake() {
+    if (!this.ctx) return;
+    this.preferPlayback();
+    if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
+  }
+
+  // iPhones mute web audio when the ring/silent switch is on silent. Ask for the
+  // same audio mode a video uses so the game is heard anyway.
+  preferPlayback() {
+    try {
+      if (navigator.audioSession) {
+        if (navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback';
+        return;
+      }
+    } catch { /* not supported */ }
+    // older iOS: a looping silent <audio> element switches the phone to playback mode
+    if (IS_IOS && !this.silentEl) {
+      const el = document.createElement('audio');
+      el.src = silentWavUrl();
+      el.loop = true;
+      el.setAttribute('playsinline', '');
+      el.setAttribute('x-webkit-airplay', 'deny');
+      this.silentEl = el;
+    }
+    if (this.silentEl && this.silentEl.paused) this.silentEl.play().catch(() => {});
   }
 
   setMusic(on) {
