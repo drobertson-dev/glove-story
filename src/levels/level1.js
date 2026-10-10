@@ -2,6 +2,7 @@
 // y values for islands/boxes are the height of the walkable top surface.
 
 export const LEVEL1 = {
+  id: 'isles', number: 1, theme: 'meadow', icon: '🌼', color: '#4cc764',
   name: 'Sunny Isles',
   start: { pos: [0, 0, 5], yaw: Math.PI },
   ball: [0, 0.5, 1.5],

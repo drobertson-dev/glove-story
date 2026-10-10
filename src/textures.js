@@ -37,57 +37,124 @@ function speckle(g, size, colors, count, seed, sz = 2) {
   }
 }
 
-export function createTextures() {
+export function createTextures(theme) {
   const T = {};
+  const P = theme.palette;
 
   T.grass = makeTex(32, (g, s) => {
-    g.fillStyle = '#62c73e';
+    g.fillStyle = P.grass.base;
     g.fillRect(0, 0, s, s);
-    g.fillStyle = '#56b934';
+    g.fillStyle = P.grass.alt;
     g.fillRect(0, 0, s / 2, s / 2);
     g.fillRect(s / 2, s / 2, s / 2, s / 2);
-    speckle(g, s, ['#7fdc55', '#4aa82c', '#8ce860'], 40, 1, 1);
+    if (P.grass.specks.length) speckle(g, s, P.grass.specks, 40, 1, 1);
   });
 
   T.grassSide = makeTex(32, (g, s) => {
-    g.fillStyle = '#9a6633';
+    if (P.side.stripes) {
+      // candy stripes with a gold band along the top
+      for (let x = 0; x < s; x += 8) {
+        g.fillStyle = P.side.stripes[(x / 8) % 2];
+        g.fillRect(x, 0, 8, s);
+      }
+      g.fillStyle = P.side.band;
+      g.fillRect(0, 0, s, 6);
+      g.fillStyle = 'rgba(0,0,0,0.15)';
+      g.fillRect(0, 6, s, 1);
+      return;
+    }
+    g.fillStyle = P.side.dirt;
     g.fillRect(0, 0, s, s);
-    speckle(g, s, ['#865628', '#ad7740', '#7a4b22'], 50, 2, 2);
-    g.fillStyle = '#56b934';
+    speckle(g, s, P.side.specks, 50, 2, 2);
+    g.fillStyle = P.side.fringe;
     g.fillRect(0, 0, s, 10);
     const r = rng(3);
     for (let x = 0; x < s; x += 2) {
       const h = 10 + Math.floor(r() * 6);
       g.fillRect(x, 0, 2, h);
     }
-    g.fillStyle = '#7fdc55';
+    g.fillStyle = P.side.light;
     g.fillRect(0, 0, s, 3);
   });
 
   T.rock = makeTex(32, (g, s) => {
-    g.fillStyle = '#8a6e55';
+    g.fillStyle = P.rock.base;
     g.fillRect(0, 0, s, s);
     const r = rng(4);
     for (let i = 0; i < 14; i++) {
-      g.fillStyle = ['#7a5f48', '#9c8064', '#6e5440'][i % 3];
+      g.fillStyle = P.rock.blocks[i % 3];
       g.fillRect(Math.floor(r() * s), Math.floor(r() * s), 4 + Math.floor(r() * 8), 3 + Math.floor(r() * 5));
     }
-    speckle(g, s, ['#5d4635', '#a88d70'], 30, 5, 1);
+    speckle(g, s, P.rock.specks, 30, 5, 1);
   });
 
   T.stone = makeTex(32, (g, s) => {
-    g.fillStyle = '#6f6a80';
+    g.fillStyle = P.stone.mortar;
     g.fillRect(0, 0, s, s);
-    g.fillStyle = '#a9a3bd';
     const bh = 8;
     for (let row = 0; row < s / bh; row++) {
       const off = row % 2 ? 8 : 0;
       for (let x = -8; x < s; x += 16) {
-        g.fillStyle = row % 2 ? '#a19bb6' : '#aea8c2';
+        g.fillStyle = row % 2 ? P.stone.b : P.stone.a;
         g.fillRect(x + off + 1, row * bh + 1, 14, bh - 2);
       }
     }
-    speckle(g, s, ['#8f89a6', '#c2bdd4'], 30, 6, 1);
+    speckle(g, s, P.stone.specks, 30, 6, 1);
+  });
+
+  // big flagstones for castle walkways and plazas
+  T.flags = makeTex(32, (g, s) => {
+    g.fillStyle = P.stone.mortar;
+    g.fillRect(0, 0, s, s);
+    const tiles = [[1, 1, 14, 14], [17, 1, 14, 9], [17, 12, 14, 19], [1, 17, 14, 14]];
+    tiles.forEach(([x, y, w, h], i) => { g.fillStyle = i % 2 ? P.stone.a : P.stone.b; g.fillRect(x, y, w, h); });
+    speckle(g, s, P.stone.specks, 24, 11, 1);
+  });
+
+  // bold carnival floor
+  T.checker = makeTex(32, (g, s) => {
+    g.fillStyle = '#fff4e0';
+    g.fillRect(0, 0, s, s);
+    g.fillStyle = '#2a1846';
+    g.fillRect(0, 0, s / 2, s / 2);
+    g.fillRect(s / 2, s / 2, s / 2, s / 2);
+  });
+
+  T.stripes = makeTex(32, (g, s) => {
+    for (let x = 0; x < s; x += 8) {
+      g.fillStyle = (x / 8) % 2 ? '#fff4e0' : '#e8394f';
+      g.fillRect(x, 0, 8, s);
+    }
+  });
+
+  // conveyor belt: chevrons pointing toward -v
+  T.belt = makeTex(32, (g, s) => {
+    g.fillStyle = '#3a3448';
+    g.fillRect(0, 0, s, s);
+    g.fillStyle = '#ffd23f';
+    for (let y = 0; y < s; y += 16) {
+      g.beginPath();
+      g.moveTo(4, y + 12); g.lineTo(16, y + 2); g.lineTo(28, y + 12); g.lineTo(28, y + 16); g.lineTo(16, y + 6); g.lineTo(4, y + 16);
+      g.closePath(); g.fill();
+    }
+    g.fillStyle = '#26212f';
+    g.fillRect(0, 0, 2, s); g.fillRect(s - 2, 0, 2, s);
+  });
+
+  T.bars = makeTex(32, (g, s) => {
+    g.clearRect(0, 0, s, s);
+    g.fillStyle = '#2b2735';
+    for (let x = 2; x < s; x += 8) g.fillRect(x, 0, 3, s);
+    g.fillRect(0, 2, s, 3);
+    g.fillRect(0, s - 6, s, 3);
+    g.fillStyle = '#d4a23a';
+    for (let x = 2; x < s; x += 8) g.fillRect(x - 1, 0, 5, 2);
+  });
+
+  T.seabed = makeTex(32, (g, s) => {
+    g.fillStyle = '#d9c08a';
+    g.fillRect(0, 0, s, s);
+    speckle(g, s, ['#c9ae76', '#e8d3a2', '#bfa26a'], 70, 13, 2);
   });
 
   T.wood = makeTex(32, (g, s) => {

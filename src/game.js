@@ -34,6 +34,8 @@ const _fwd = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _ax = new THREE.Vector3();
 const _p = new THREE.Vector3();
+const _surf = new THREE.Vector3();
+const _bump = new THREE.Vector3();
 const DOWN = new THREE.Vector3(0, -1, 0);
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -50,7 +52,7 @@ function rotateToward(a, b, maxStep) {
 }
 
 export class Game {
-  constructor({ scene, camera, input, hud, sound, level, ui }) {
+  constructor({ scene, camera, input, hud, sound, level, ui, theme }) {
     this.scene = scene;
     this.camera = camera;
     this.input = input;
@@ -58,18 +60,18 @@ export class Game {
     this.sound = sound;
     this.L = level;
     this.ui = ui;
+    this.theme = theme;
 
-    scene.background = new THREE.Color(0xbfe6ff);
-    scene.fog = new THREE.Fog(0xc4e6ff, 50, 175);
-    scene.add(new THREE.HemisphereLight(0xe4f2ff, 0x7a6248, 1.9));
-    const sun = new THREE.DirectionalLight(0xfff0d0, 2.2);
-    sun.position.set(0.6, 1, 0.35);
+    scene.background = new THREE.Color(theme.fog[0]);
+    scene.fog = new THREE.Fog(theme.fog[0], theme.fog[1], theme.fog[2]);
+    scene.add(new THREE.HemisphereLight(theme.hemi[0], theme.hemi[1], theme.hemi[2]));
+    const sun = new THREE.DirectionalLight(theme.sun[0], theme.sun[1]);
+    sun.position.set(...theme.sun[2]);
     scene.add(sun);
 
     this.physics = new PhysicsWorld();
-    this.T = createTextures();
-    this.world = buildWorld(scene, this.physics, this.T, level);
-    for (const mv of this.world.movers) mv.col.isMover = true;
+    this.T = createTextures(theme);
+    this.world = buildWorld(scene, this.physics, this.T, level, theme);
 
     this.model = new GloverModel();
     scene.add(this.model.root);
@@ -81,10 +83,10 @@ export class Game {
     this.bShadow = new BlobShadow(scene, this.T.shadow, 0.95);
 
     this.garibs = new Garibs(scene, level.garibs);
-    this.potions = new Potions(scene, level.potions);
-    this.checkpoints = new Checkpoints(scene, level.checkpoints);
-    this.signs = new Signs(scene, level.signs, this.T.sign);
-    this.bumblers = new Bumblers(scene, level.enemies);
+    this.potions = new Potions(scene, level.potions || []);
+    this.checkpoints = new Checkpoints(scene, level.checkpoints || []);
+    this.signs = new Signs(scene, level.signs || [], this.T.sign);
+    this.bumblers = new Bumblers(scene, level.enemies || []);
     this.eShadows = this.bumblers.items.map(() => new BlobShadow(scene, this.T.shadow, 1.0));
     this.portal = new Portal(scene, level.goal, this.T.portal);
 
@@ -95,13 +97,13 @@ export class Game {
       grounded: false, groundCol: null, coyote: 0, jumpBuffer: 0, canDouble: false, jumpFlag: false,
       holding: false, riding: false, slamming: false, slamHang: 0, airT: 0, launchT: 0,
       hearts: MAX_HEARTS, invuln: 0, hurtT: 0,
-      safe: new THREE.Vector3(), safeYaw: Math.PI, safeT: 0, wallN: new THREE.Vector3(),
+      safe: new THREE.Vector3(), safeYaw: Math.PI, safeT: 0, wallN: new THREE.Vector3(), swimming: false,
       anim: { flipStart: false, spinStart: false, landImpact: 0 },
     };
     this.b = {
       pos: new THREE.Vector3(), vel: new THREE.Vector3(), form: 'crystal', state: 'free',
       grounded: false, groundN: new THREE.Vector3(0, 1, 0), groundCol: null, omega: new THREE.Vector3(),
-      ignoreT: 0, soundT: 0, dribble: 0, dribbleBounced: false, airT: 0, groundY: 0,
+      ignoreT: 0, soundT: 0, dribble: 0, dribbleBounced: false, airT: 0, groundY: 0, wet: false,
     };
 
     this.state = 'title';
@@ -133,6 +135,12 @@ export class Game {
       for (const c of this.world.crates) {
         if (!c.alive) { c.alive = true; c.mesh.visible = true; this.physics.add(c.col); }
       }
+      for (const sw of this.world.switches) sw.pressed = false;
+      for (const gt of this.world.gates) {
+        gt.active = false; gt.t = 0;
+        gt.col.pos.copy(gt.from); gt.col.vel.set(0, 0, 0);
+        gt.mesh.position.set(gt.from.x, gt.from.y + gt.meshOffset, gt.from.z);
+      }
       const s = this.L.start;
       this.spawnPoint = {
         pos: new THREE.Vector3(...s.pos), yaw: s.yaw, form: 'crystal',
@@ -147,7 +155,7 @@ export class Game {
     g.pos.copy(sp.pos);
     g.vel.set(0, 0, 0);
     g.yaw = sp.yaw;
-    g.grounded = true; g.groundCol = null; g.holding = false; g.riding = false; g.slamming = false;
+    g.grounded = true; g.groundCol = null; g.holding = false; g.riding = false; g.slamming = false; g.swimming = false;
     g.hearts = MAX_HEARTS; g.invuln = 0; g.hurtT = 0; g.jumpBuffer = 0; g.launchT = 0;
     g.safe.copy(sp.pos); g.safeYaw = sp.yaw; g.canDouble = true;
     b.pos.copy(sp.ball);
@@ -156,6 +164,7 @@ export class Game {
     b.omega.set(0, 0, 0);
     b.state = 'free';
     b.ignoreT = 0;
+    b.wet = false;
     this.setForm(sp.form, true);
     this.ballVis.root.visible = true;
     this.ballVis.root.scale.setScalar(1);
@@ -174,7 +183,7 @@ export class Game {
   start() {
     this.state = 'playing';
     this.hud.show(true);
-    this.hud.toast('World 1', this.L.name, 2.4);
+    this.hud.toast('World ' + this.L.number, this.L.name, 2.4);
   }
 
   // what the GRAB button would do right now, for the floating hint bubble
@@ -269,6 +278,7 @@ export class Game {
       time: `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`,
       crystal: this.b.form === 'crystal',
       lives: this.lives,
+      id: this.L.id, seconds: t,
     };
   }
 
@@ -301,7 +311,7 @@ export class Game {
 
   // Falling off (you or the ball) costs a heart instead of a whole life:
   // you pop back to the last safe spot, and a lost ball pops back into your hand.
-  rescue(who) {
+  rescue(who, title) {
     if (this.state !== 'playing') return;
     const g = this.g;
     if (who === 'ball' && g.riding) who = 'glover'; // rode it off the edge: bring both back
@@ -314,7 +324,7 @@ export class Game {
     this.ui.fade(true);
     this.sound.play('nope');
     buzz(40);
-    this.hud.toast(who === 'ball' ? 'Ball lost!' : 'Whoops!', '-1 heart', 1.4);
+    this.hud.toast(title || (who === 'ball' ? 'Ball lost!' : 'Whoops!'), '-1 heart', 1.4);
     this.input.releaseAll();
   }
 
@@ -326,7 +336,7 @@ export class Game {
       g.pos.copy(g.safe);
       g.vel.set(0, 0, 0);
       g.yaw = g.safeYaw;
-      g.grounded = true; g.slamming = false; g.riding = false;
+      g.grounded = true; g.slamming = false; g.riding = false; g.swimming = false;
       g.invuln = 1.2;
       if (carry || b.state === 'gone') this.giveBallBack();
       this.cam.snap(g.pos, g.yaw);
@@ -345,6 +355,7 @@ export class Game {
     b.omega.set(0, 0, 0);
     b.pos.set(g.pos.x, g.pos.y + 1, g.pos.z);
     b.groundY = g.pos.y;
+    b.wet = false;
     this.ballVis.root.visible = true;
     this.placeHeldBall(0);
     this.fx.burst(b.pos, 16, { color: [0xffffff, FORMS[b.form].color], size: 0.08, life: 0.6, speed: 3, up: 2 });
@@ -357,7 +368,9 @@ export class Game {
 
   handleActions() {
     const g = this.g, b = this.b, f = FORMS[b.form];
-    if (this.wantGrab && !g.riding) {
+    if (this.wantGrab && g.swimming) {
+      this.message('swimgrab', 'Can\'t hold the ball while swimming', 'Get out of the water first', 3);
+    } else if (this.wantGrab && !g.riding) {
       if (g.holding && !this.willThrow()) {
         // set it down in front (handy for hopping on top), or right where it is
         g.holding = false;
@@ -395,7 +408,7 @@ export class Game {
       }
     }
 
-    if (this.wantSlap && !g.riding) {
+    if (this.wantSlap && !g.riding && !g.swimming) {
       if (!g.grounded && g.airT > 0.12 && !g.slamming && !g.holding) {
         g.slamming = true;
         g.slamHang = 0.12;
@@ -473,6 +486,10 @@ export class Game {
       return;
     }
 
+    const W = this.world.water;
+    if (W && !g.swimming && g.pos.y < W.y - 0.3) this.enterWater();
+    if (g.swimming) { this.stepSwim(dt, mag); return; }
+
     if (g.grounded) { g.coyote = COYOTE; g.airT = 0; g.canDouble = true; }
     else { g.coyote = Math.max(0, g.coyote - dt); g.airT += dt; }
 
@@ -530,20 +547,23 @@ export class Game {
       g.vel.y = Math.max(-32, g.vel.y - GRAV * gm * dt);
     }
 
-    // ride moving platforms
+    // ride moving platforms and conveyor belts
     if (g.grounded && g.groundCol && g.groundCol.isMover) g.pos.addScaledVector(g.groundCol.vel, dt);
+    if (g.grounded && g.groundCol && g.groundCol.belt) g.pos.addScaledVector(g.groundCol.belt, dt);
 
     g.pos.addScaledVector(g.vel, dt);
 
     // collide
     const wasGrounded = g.grounded;
     g.grounded = false;
-    let landSpeed = 0, hurtFloor = null, padCol = null, groundCol = null, hitWall = false;
+    let landSpeed = 0, hurtFloor = null, padCol = null, groundCol = null, hitWall = false, bumped = null;
+    const bumpN = _bump;
     _c.set(g.pos.x, g.pos.y + G_R, g.pos.z);
     const preVy = g.vel.y;
     this.physics.resolveSphere(_c, G_R, (n, depth, col) => {
       const vn = g.vel.dot(n);
-      if (Math.abs(n.y) < 0.5) { hitWall = true; g.wallN.set(n.x, 0, n.z).normalize(); }
+      if (col.bumper) { bumped = col; bumpN.set(n.x, 0, n.z).normalize(); }
+      if (Math.abs(n.y) < 0.5 && !col.bumper) { hitWall = true; g.wallN.set(n.x, 0, n.z).normalize(); }
       if (n.y > 0.55) {
         g.grounded = true;
         groundCol = col;
@@ -589,7 +609,7 @@ export class Game {
     g.groundCol = groundCol;
 
     // remember the last solid, well-supported place we stood (for rescues)
-    if (g.grounded && groundCol && !groundCol.isMover && !groundCol.hurt && !groundCol.pad && !groundCol.crumble) {
+    if (g.grounded && groundCol && !groundCol.isMover && !groundCol.hurt && !groundCol.pad && !groundCol.crumble && !groundCol.spiky && !groundCol.belt) {
       g.safeT -= dt;
       if (g.safeT <= 0) {
         g.safeT = 0.2;
@@ -599,6 +619,8 @@ export class Game {
 
     if (g.grounded && !wasGrounded) this.onGloverLand(landSpeed);
 
+    if (bumped && bumpN.lengthSq() > 0.1) this.bumpGlover(bumped, bumpN);
+    if (groundCol && groundCol.crumble && groundCol.crumble.state === 'idle') this.startCrumble(groundCol.crumble);
     if (padCol && g.grounded) this.launchFromPad(padCol, 'glover');
     if (hurtFloor && g.grounded) {
       if (g.invuln <= 0) {
@@ -617,7 +639,8 @@ export class Game {
       const a = (i / 4) * Math.PI * 2;
       _ax.set(pos.x + Math.cos(a) * r, pos.y + 0.6, pos.z + Math.sin(a) * r);
       const hit = this.physics.raycast(_ax, DOWN, 1.2);
-      if (!hit || hit.normal.y < 0.55 || hit.collider.hurt || hit.collider.isMover) return false;
+      const c = hit && hit.collider;
+      if (!hit || hit.normal.y < 0.55 || c.hurt || c.isMover || c.spiky || c.crumble || c.belt) return false;
     }
     return true;
   }
@@ -641,6 +664,101 @@ export class Game {
       this.sound.play('land');
     }
     if (speed > 12) this.fx.burst(_p.copy(g.pos).setY(g.pos.y + 0.1), 8, { color: 0xffffff, size: 0.09, life: 0.4, speed: 4, up: 0.5 });
+  }
+
+  enterWater() {
+    const g = this.g, b = this.b;
+    g.swimming = true;
+    g.slamming = false;
+    g.vel.y *= 0.3;
+    this.sound.play('splash');
+    this.fx.burst(_p.set(g.pos.x, this.world.water.y + 0.1, g.pos.z), 14, { color: [0xffffff, 0xbff4ff], size: 0.1, life: 0.6, speed: 4, up: 4, gravity: 12 });
+    if (g.holding) {
+      g.holding = false;
+      b.state = 'free';
+      b.vel.set(g.vel.x * 0.5, 0, g.vel.z * 0.5);
+      b.ignoreT = 0.5;
+      this.message('swimdrop', 'You let go of the ball!', 'Gloves can\'t carry while swimming', 3);
+    }
+  }
+
+  stepSwim(dt, mag) {
+    const g = this.g, W = this.world.water;
+    const targetY = W.y - 0.62 + Math.sin(this.time * 3) * 0.04;
+    g.vel.y += ((targetY - g.pos.y) * 30 - g.vel.y * 7) * dt;
+    const max = 3.3;
+    const tx = _move.x * max, tz = _move.z * max;
+    const dvx = tx - g.vel.x, dvz = tz - g.vel.z, dl = Math.hypot(dvx, dvz), md = 14 * dt;
+    if (dl <= md) { g.vel.x = tx; g.vel.z = tz; } else { g.vel.x += (dvx / dl) * md; g.vel.z += (dvz / dl) * md; }
+    if (g.jumpBuffer > 0) {
+      g.jumpBuffer = 0;
+      g.swimming = false;
+      g.vel.y = JUMP_V;
+      g.canDouble = true;
+      g.jumpFlag = true;
+      g.pos.y = Math.max(g.pos.y, W.y - 0.25);
+      this.sound.play('jump');
+      this.fx.burst(_p.set(g.pos.x, W.y + 0.1, g.pos.z), 8, { color: 0xffffff, size: 0.08, life: 0.4, speed: 3, up: 3, gravity: 12 });
+      return;
+    }
+    g.pos.addScaledVector(g.vel, dt);
+    let hitWall = false;
+    _c.set(g.pos.x, g.pos.y + G_R, g.pos.z);
+    this.physics.resolveSphere(_c, G_R, (n, depth, col) => {
+      const vn = g.vel.dot(n);
+      if (Math.abs(n.y) < 0.5) { hitWall = true; g.wallN.set(n.x, 0, n.z).normalize(); }
+      if (vn < 0) g.vel.addScaledVector(n, -vn);
+    });
+    g.pos.set(_c.x, _c.y - G_R, _c.z);
+    // swim up to a shore and you climb out
+    if (hitWall && -(_move.x * g.wallN.x + _move.z * g.wallN.z) > 0.3) {
+      _p.set(g.pos.x - g.wallN.x * 0.45, g.pos.y + 1.9, g.pos.z - g.wallN.z * 0.45);
+      const hit = this.physics.raycast(_p, DOWN, 2.2);
+      if (hit && hit.t > 0 && hit.normal.y > 0.55 && !hit.collider.hurt) {
+        const top = _p.y - hit.t;
+        if (top - g.pos.y < 1.6 && top > W.y - 0.3) {
+          g.pos.set(g.pos.x - g.wallN.x * 0.35, top + 0.02, g.pos.z - g.wallN.z * 0.35);
+          g.vel.set(0, 0, 0);
+          g.swimming = false;
+          g.grounded = true;
+          g.groundCol = hit.collider;
+          this.sound.play('land');
+        }
+      }
+    }
+    if (Math.random() < dt * (mag > 0.1 ? 10 : 2)) {
+      this.fx.spawn(_p.set(g.pos.x + (Math.random() - 0.5) * 0.6, W.y + 0.05, g.pos.z + (Math.random() - 0.5) * 0.6), _t.set(0, 0.8, 0), { color: 0xffffff, size: 0.06, life: 0.4 });
+    }
+  }
+
+  bumpGlover(col, n) {
+    const g = this.g;
+    const bp = this.world.bumpers.find((x) => x.col === col);
+    if (bp && bp.cool > this.simTime) return;
+    if (bp) { bp.cool = this.simTime + 0.2; bp.squash = 1; }
+    g.vel.x = n.x * 8; g.vel.z = n.z * 8;
+    g.vel.y = Math.max(g.vel.y, 6);
+    g.grounded = false;
+    g.launchT = 0.35;
+    this.sound.play('boing');
+  }
+
+  bumpBall(col, n) {
+    const b = this.b;
+    const bp = this.world.bumpers.find((x) => x.col === col);
+    if (bp && bp.cool > this.simTime) return;
+    if (bp) { bp.cool = this.simTime + 0.15; bp.squash = 1; }
+    const p = col.bumper;
+    b.vel.x = n.x * p; b.vel.z = n.z * p;
+    b.vel.y = Math.max(b.vel.y, 2.5);
+    this.sound.play('boing');
+    this.fx.burst(b.pos, 8, { color: [0xff6fb5, 0xffffff, 0xffd23f], size: 0.08, life: 0.4, speed: 4 });
+  }
+
+  startCrumble(cr) {
+    cr.state = 'shaking';
+    cr.t = 0;
+    this.sound.play('crumble');
   }
 
   launchFromPad(col, who) {
@@ -694,15 +812,42 @@ export class Game {
   stepBall(dt) {
     const b = this.b, f = FORMS[b.form];
     b.vel.y -= f.gravity * dt;
+
+    // water: rubber floats, everything else sinks
+    const W = this.world.water;
+    if (W && b.pos.y < W.y + BALL_R * 0.8) {
+      if (!b.wet) {
+        b.wet = true;
+        this.sound.play('splash');
+        this.fx.burst(_p.set(b.pos.x, W.y + 0.1, b.pos.z), 12, { color: [0xffffff, 0xbff4ff], size: 0.09, life: 0.5, speed: 3.5, up: 4, gravity: 12 });
+        if (f.floats) this.message('float', 'It floats!', 'Hop on and ride it across the water', 4);
+      }
+      if (f.floats) {
+        const sub = Math.min(1, Math.max(0, (W.y - (b.pos.y - BALL_R)) / (BALL_R * 2)));
+        b.vel.y += sub * f.gravity * 2.3 * dt;
+        b.vel.y *= Math.exp(-3 * dt);
+        const drag = Math.exp(-(this.g.riding ? 0.5 : 2.2) * dt);
+        b.vel.x *= drag; b.vel.z *= drag;
+        b.omega.multiplyScalar(0.98);
+      } else {
+        b.vel.y = Math.max(b.vel.y, -2.2);
+        b.vel.x *= Math.exp(-2.5 * dt); b.vel.z *= Math.exp(-2.5 * dt);
+        if (Math.random() < dt * 8) this.fx.spawn(_p.copy(b.pos).add(_t.set(Math.random() - 0.5, 0.4, Math.random() - 0.5)), _t.set(0, 1.5, 0), { color: 0xdff8ff, size: 0.05, life: 0.6 });
+        if (b.pos.y < W.y - 2.2) { this.rescue('ball', 'Ball sank!'); return; }
+      }
+    } else if (W && b.pos.y > W.y + BALL_R + 0.3) b.wet = false;
+
     b.pos.addScaledVector(b.vel, dt);
 
-    let maxImpact = 0, padCol = null, smash = false;
+    let maxImpact = 0, padCol = null, smash = false, bumped = null;
+    const bumpN = _bump;
     const wasGrounded = b.grounded;
     b.grounded = false;
     b.groundCol = null;
     this.physics.resolveSphere(b.pos, BALL_R, (n, depth, col) => {
       _rel.copy(b.vel).sub(col.vel);
       const vn = _rel.dot(n);
+      if (col.bumper) { bumped = col; bumpN.set(n.x, 0, n.z).normalize(); return; }
       if (n.y > 0.5) {
         b.grounded = true;
         b.groundCol = col;
@@ -730,25 +875,29 @@ export class Game {
       b.airT = 0;
       const col = b.groundCol;
       b.groundY = b.pos.y;
-      _rel.copy(b.vel).sub(col.vel);
+      const surf = _surf.set(col.vel.x + (col.belt ? col.belt.x : 0), col.vel.y, col.vel.z + (col.belt ? col.belt.z : 0));
+      _rel.set(b.vel.x - surf.x, b.vel.y - surf.y, b.vel.z - surf.z);
       const vn = _rel.dot(b.groundN);
       _t.copy(b.groundN).multiplyScalar(vn);
       _rel.sub(_t);
-      const rate = col.isMover ? 7 : (this.g.riding ? f.rollFriction * 0.5 : f.rollFriction);
+      const rate = (col.isMover || col.belt) ? 7 : (this.g.riding ? f.rollFriction * 0.5 : f.rollFriction);
       const sp = _rel.length();
       let nsp = sp * Math.exp(-rate * dt) - 0.25 * dt;
       if (nsp < 0) nsp = 0;
       if (sp > 1e-6) _rel.multiplyScalar(nsp / sp);
-      b.vel.copy(_rel).add(_t).add(col.vel);
+      b.vel.copy(_rel).add(_t);
+      b.vel.x += surf.x; b.vel.y += surf.y; b.vel.z += surf.z;
       // spin from rolling
-      _rel.copy(b.vel).sub(col.vel);
+      _rel.set(b.vel.x - surf.x, b.vel.y - surf.y, b.vel.z - surf.z);
       b.omega.crossVectors(b.groundN, _rel).divideScalar(BALL_R);
+      if (col.crumble && col.crumble.state === 'idle') this.startCrumble(col.crumble);
     } else {
       b.airT += dt;
       b.omega.multiplyScalar(1 - dt * 0.3);
     }
 
     if (smash) this.smashCrates(b.pos);
+    if (bumped && bumpN.lengthSq() > 0.1) this.bumpBall(bumped, bumpN);
 
     if (maxImpact > 2.5 && b.soundT <= 0) {
       b.soundT = 0.07;
@@ -821,6 +970,17 @@ export class Game {
     const minD = G_R + BALL_R;
     if (dist >= minD || dist < 1e-5) return;
     _t.divideScalar(dist); // glover -> ball
+
+    // swimming into a floating ball: climb on top of it
+    if (g.swimming && b.wet && FORMS[b.form].floats) {
+      g.swimming = false;
+      g.riding = true;
+      g.holding = false;
+      g.vel.set(0, 0, 0);
+      this.sound.play('grab');
+      this.message('ride', 'Ball ride!', 'Steer to paddle it, jump to hop off', 2.5);
+      return;
+    }
 
     // landing on top of the ball?
     if (_t.y < -0.55 && g.vel.y <= 1) {
@@ -952,7 +1112,7 @@ export class Game {
         continue;
       }
       if (b.state !== 'gone') {
-        _t.set(b.pos.x - ex, b.pos.y - (ey + 0.3), b.pos.z - ez);
+        _t.set(b.pos.x - ex, b.pos.y - (ey + (e.type === 'ghost' ? 0.9 : 0.3)), b.pos.z - ez);
         const d = _t.length();
         if (d < BALL_R + 0.45) {
           const sp = _rel.copy(b.vel).sub(e.vel).length();
@@ -992,19 +1152,29 @@ export class Game {
       }
     }
 
+    // ball switches
+    for (const sw of this.world.switches) {
+      if (sw.pressed) continue;
+      const d = sw.data;
+      const onIt = b.state === 'free' && Math.hypot(b.pos.x - d.x, b.pos.z - d.z) < 0.85 && b.pos.y > d.y + 0.4 && b.pos.y < d.y + 1.3;
+      if (onIt && Math.hypot(b.vel.x, b.vel.z) < 4) {
+        if (d.heavy && b.form !== 'bowling') {
+          this.message('heavy-' + d.id, 'Not heavy enough!', 'Only a bowling ball can ring this bell', 3);
+          continue;
+        }
+        this.pressSwitch(sw);
+      } else if (Math.hypot(g.pos.x - d.x, g.pos.z - d.z) < 0.9 && Math.abs(g.pos.y - d.y) < 0.8) {
+        this.message('sw-' + d.id, 'Ball switch', d.heavy ? 'Drop a bowling ball on it' : 'Put the ball on it', 3);
+      }
+    }
+
     // checkpoints (only count if the ball came along)
     for (const cp of this.checkpoints.items) {
       if (cp.active) continue;
       if (Math.hypot(g.pos.x - cp.x, g.pos.z - cp.z) < 2 && Math.abs(g.pos.y - cp.y) < 2.5) {
         if (b.state !== 'gone' && b.pos.distanceTo(cp.pos) < 5) {
           this.checkpoints.activate(cp);
-          const off = cp.x > 0 ? -1.2 : 1.2;
-          this.spawnPoint = {
-            pos: new THREE.Vector3(cp.x + off, cp.y + 0.05, cp.z),
-            yaw: Math.PI,
-            form: b.form,
-            ball: new THREE.Vector3(cp.x + off, cp.y + BALL_R + 0.05, cp.z - 1.4),
-          };
+          this.spawnPoint = this.checkpointSpawn(cp, b.form);
           g.hearts = MAX_HEARTS;
           this.sound.play('checkpoint');
           this.hud.toast('Checkpoint!', '', 1.4);
@@ -1022,6 +1192,32 @@ export class Game {
     } else if (Math.hypot(g.pos.x - P.x, g.pos.z - P.z) < 1.8 && Math.abs(g.pos.y - P.y) < 2) {
       this.message('goal', 'Bring the ball!', 'The portal needs your ball', 3);
     }
+  }
+
+  // where Glover and the ball reappear for a checkpoint: next to the flag, ball in
+  // front, both on solid ground
+  checkpointSpawn(cp, form) {
+    const off = cp.x > 0 ? -1.2 : 1.2;
+    const g = new THREE.Vector3(cp.x + off, cp.y + 0.05, cp.z);
+    const tries = [[0, -1.4], [0, 1.4], [1.4, 0], [-1.4, 0], [1, -1], [-1, -1], [1, 1], [-1, 1]];
+    let ball = new THREE.Vector3(g.x, g.y + BALL_R, g.z - 1.4);
+    for (const [dx, dz] of tries) {
+      const p = new THREE.Vector3(g.x + dx, g.y + BALL_R, g.z + dz);
+      if (this.wellSupported(new THREE.Vector3(p.x, cp.y, p.z), 0.45)) { ball = p; break; }
+    }
+    return { pos: g, yaw: Math.PI, form, ball };
+  }
+
+  pressSwitch(sw) {
+    sw.pressed = true;
+    sw.btnMat.color.setHex(0x4cc764);
+    sw.btnMat.emissive.setHex(0x0a5a1a);
+    for (const gt of this.world.gates) if (gt.data.trigger === sw.data.id) gt.active = true;
+    this.sound.play(sw.data.heavy ? 'bell' : 'switch');
+    setTimeout(() => this.sound.play('rumble'), 250);
+    this.shake = Math.max(this.shake, 0.3);
+    this.hud.toast(sw.data.msg || 'Click!', sw.data.sub || '', 2.2);
+    this.fx.burst(_p.set(sw.data.x, sw.data.y + 0.6, sw.data.z), 18, { color: [0x4cc764, 0xffffff, 0xffd23f], size: 0.1, life: 0.7, speed: 4, up: 3 });
   }
 
   message(key, text, sub, cool) {
@@ -1090,7 +1286,7 @@ export class Game {
       grounded: g.grounded, vy: g.vel.y, holding: g.holding, riding: g.riding,
       dribble: g.holding && !!f.dribble, dribblePhase: b.dribble, heavy: g.holding && b.form === 'bowling',
       flipStart: g.anim.flipStart, spinStart: g.anim.spinStart, landImpact: g.anim.landImpact,
-      slam: g.slamming, hurt: g.hurtT > 0, flicker: g.invuln > 0 && this.state === 'playing',
+      slam: g.slamming, hurt: g.hurtT > 0, flicker: g.invuln > 0 && this.state === 'playing', swimming: g.swimming,
     });
     g.anim.flipStart = false; g.anim.spinStart = false; g.anim.landImpact = 0;
 
@@ -1118,7 +1314,7 @@ export class Game {
     this.ballVis.animate(dt);
 
     // shadows
-    this.gShadow.update(this.physics, g.pos, this.model.root.visible || this.state !== 'playing');
+    this.gShadow.update(this.physics, g.pos, !g.swimming && (this.model.root.visible || this.state !== 'playing'));
     this.bShadow.update(this.physics, _p.set(b.pos.x, b.pos.y - BALL_R, b.pos.z), this.ballVis.root.visible && b.state !== 'won');
     this.bumblers.items.forEach((e, i) => this.eShadows[i].update(this.physics, e.pos, e.alive));
 
@@ -1128,8 +1324,8 @@ export class Game {
     this.potions.update(dt, t);
     this.checkpoints.update(dt, t);
     this.signs.update(dt, t, this.camera.position);
-    if (this.state === 'playing' || this.state === 'title') this.bumblers.update(dt, t);
-    else this.bumblers.update(0, t);
+    if (this.state === 'playing' || this.state === 'title') this.bumblers.update(dt, t, this.state === 'playing' ? g.pos : null);
+    else this.bumblers.update(0, t, null);
     this.portal.update(dt, t);
     this.fx.update(dt);
 
@@ -1153,7 +1349,7 @@ export class Game {
 
       // until the ball has been picked up once, spell out the goal; after that, nearest sign
       const mode = this.input.labelMode();
-      if (this.tips.pickups === 0 && this.state === 'playing') {
+      if (this.tips.pickups === 0 && this.state === 'playing' && this.L.number === 1) {
         this.hud.showSign(formatControls('<b>Goal:</b> carry your <b>ball</b> to the <b>portal</b> at the end of the level! Walk up to it and press {GRAB} to pick it up.', mode));
       } else {
         let sign = null, best = 2.8;

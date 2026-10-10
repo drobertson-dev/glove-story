@@ -119,7 +119,16 @@ export class GloverModel {
     let hipA = [0, 0], kneeA = [0, 0];
     let lean = 0, bob = 0, thumbZ = -0.9, thumbX = 0, sway = 0;
 
-    if (s.riding) {
+    if (s.swimming) {
+      // doggy paddle: legs flutter, thumb strokes, body tipped forward
+      this.phase += dt * 9;
+      const p = this.phase;
+      hipA = [Math.sin(p) * 0.5 - 0.6, Math.sin(p + Math.PI) * 0.5 - 0.6];
+      kneeA = [0.3, 0.3];
+      thumbZ = -1.5 + Math.sin(p * 0.7) * 0.6;
+      thumbX = Math.cos(p * 0.7) * 0.8;
+      lean = 0.5;
+    } else if (s.riding) {
       this.phase += dt * (6 + s.speed * 3);
       const p = this.phase;
       hipA = [Math.sin(p) * 0.6 - 0.2, Math.sin(p + Math.PI) * 0.6 - 0.2];

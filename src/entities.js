@@ -218,25 +218,170 @@ function bumblerMesh() {
   return g;
 }
 
+function crabMesh() {
+  const g = new THREE.Group();
+  const shell = new THREE.MeshLambertMaterial({ color: 0xff6a3d });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x2a1846 });
+  const white = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10), shell);
+  body.scale.set(1.25, 0.62, 0.95);
+  body.position.y = 0.32;
+  g.add(body);
+  // claws held up to the sides
+  const claws = [];
+  for (const sx of [-1, 1]) {
+    const arm = new THREE.Group();
+    arm.position.set(sx * 0.5, 0.38, 0.12);
+    const pincer = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), shell);
+    pincer.scale.set(1, 1.2, 0.8);
+    pincer.position.set(sx * 0.12, 0.2, 0.08);
+    const nip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.18, 5), shell);
+    nip.position.set(sx * 0.12, 0.38, 0.1);
+    arm.add(pincer, nip);
+    g.add(arm);
+    claws.push(arm);
+  }
+  for (const sx of [-0.13, 0.13]) {
+    const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.22, 5), shell);
+    stalk.position.set(sx, 0.58, 0.18);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), white);
+    eye.position.set(sx, 0.7, 0.2);
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 4), dark);
+    pupil.position.set(sx, 0.71, 0.26);
+    g.add(stalk, eye, pupil);
+  }
+  const legs = [];
+  const legGeo = new THREE.CylinderGeometry(0.03, 0.025, 0.32, 4);
+  for (let i = 0; i < 6; i++) {
+    const side = i < 3 ? -1 : 1;
+    const l = new THREE.Mesh(legGeo, shell);
+    l.position.set(side * 0.42, 0.14, -0.18 + (i % 3) * 0.15);
+    l.rotation.z = side * 0.9;
+    g.add(l);
+    legs.push(l);
+  }
+  g.userData = { legs, claws };
+  return g;
+}
+
+function mouseMesh() {
+  const g = new THREE.Group();
+  const fur = new THREE.MeshLambertMaterial({ color: 0x9a94b0 });
+  const pink = new THREE.MeshLambertMaterial({ color: 0xff9fc0 });
+  const dark = new THREE.MeshBasicMaterial({ color: 0x1a1030 });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.38, 14, 10), fur);
+  body.scale.set(0.85, 0.75, 1.3);
+  body.position.y = 0.32;
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), pink);
+  nose.position.set(0, 0.33, 0.52);
+  g.add(body, nose);
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.CircleGeometry(0.17, 12), pink);
+    ear.position.set(sx * 0.2, 0.62, 0.15);
+    ear.rotation.y = sx * 0.4;
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 4), dark);
+    eye.position.set(sx * 0.12, 0.45, 0.4);
+    g.add(ear, eye);
+  }
+  const tail = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.025, 4, 12, Math.PI * 1.3), pink);
+  tail.position.set(0, 0.3, -0.55);
+  tail.rotation.y = Math.PI / 2;
+  g.add(tail);
+  const key = new THREE.Group();
+  key.position.set(0, 0.62, -0.1);
+  const keyMat = new THREE.MeshLambertMaterial({ color: 0xffd23f });
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.2, 6), keyMat);
+  stem.position.y = 0.05;
+  const bow = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.03, 4, 10), keyMat);
+  bow.position.set(0.1, 0.2, 0);
+  const bow2 = bow.clone();
+  bow2.position.x = -0.1;
+  key.add(stem, bow, bow2);
+  g.add(key);
+  const legs = [];
+  const wheelGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.06, 8);
+  wheelGeo.rotateZ(Math.PI / 2);
+  for (const [x, z] of [[-0.25, 0.25], [0.25, 0.25], [-0.25, -0.25], [0.25, -0.25]]) {
+    const w = new THREE.Mesh(wheelGeo, dark);
+    w.position.set(x, 0.09, z);
+    g.add(w);
+    legs.push(w);
+  }
+  g.userData = { key, legs, wheels: true };
+  return g;
+}
+
+function ghostMesh() {
+  const g = new THREE.Group();
+  const sheet = new THREE.MeshLambertMaterial({ color: 0xf0f0ff, emissive: 0x5a5a8a, transparent: true, opacity: 0.9 });
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), sheet);
+  head.position.y = 0.95;
+  const skirtGeo = new THREE.CylinderGeometry(0.45, 0.55, 0.7, 16, 1, true);
+  const sp = skirtGeo.attributes.position;
+  for (let i = 0; i < sp.count; i++) {
+    if (sp.getY(i) < 0) {
+      const a = Math.atan2(sp.getZ(i), sp.getX(i));
+      sp.setY(i, sp.getY(i) + Math.max(0, Math.sin(a * 5)) * 0.18);
+    }
+  }
+  skirtGeo.computeVertexNormals();
+  const skirt = new THREE.Mesh(skirtGeo, sheet);
+  skirt.material = sheet.clone();
+  skirt.material.side = THREE.DoubleSide;
+  skirt.position.y = 0.6;
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1a1030 });
+  const mouth = new THREE.Mesh(new THREE.CircleGeometry(0.09, 10), eyeMat);
+  mouth.position.set(0, 0.86, 0.44);
+  g.add(head, skirt, mouth);
+  for (const sx of [-0.15, 0.15]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), eyeMat);
+    eye.position.set(sx, 1.08, 0.39);
+    eye.scale.set(0.8, 1.3, 0.5);
+    g.add(eye);
+  }
+  const arms = [];
+  for (const sx of [-1, 1]) {
+    const arm = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), sheet);
+    arm.scale.set(1.4, 0.7, 0.7);
+    arm.position.set(sx * 0.52, 0.85, 0.05);
+    g.add(arm);
+    arms.push(arm);
+  }
+  g.userData = { arms, legs: [] };
+  return g;
+}
+
+const SKINS = { bumbler: bumblerMesh, crab: crabMesh, mouse: mouseMesh, ghost: ghostMesh };
+
+// Critters. Most patrol back and forth between two points; ghosts drift toward you.
 export class Bumblers {
   constructor(scene, list) {
     this.scene = scene;
     this.items = list.map((e, i) => {
-      const mesh = bumblerMesh();
+      const type = e.type || 'patrol';
+      const skin = e.skin || (type === 'ghost' ? 'ghost' : 'bumbler');
+      const mesh = SKINS[skin]();
       scene.add(mesh);
-      const a = new THREE.Vector3(...e.a), b = new THREE.Vector3(...e.b);
-      return { mesh, a, b, pos: a.clone(), t: i * 0.37, dir: 1, alive: true, pause: 0, squish: 0, vel: new THREE.Vector3() };
+      const a = new THREE.Vector3(...(e.a || e.home)), b = new THREE.Vector3(...(e.b || e.home));
+      return {
+        type, skin, mesh, a, b, home: a.clone(), pos: a.clone(), t: i * 0.37, dir: 1, alive: true, pause: 0, squish: 0,
+        vel: new THREE.Vector3(), speed: e.speed || (type === 'ghost' ? 2.1 : 1.6), range: e.range || 7.5,
+      };
     });
     this.reset();
+    this._t = new THREE.Vector3();
   }
   reset() {
     for (const e of this.items) {
       e.alive = true; e.mesh.visible = true; e.squish = 0; e.u = 0.5; e.dir = 1; e.pause = 0;
-      e.pos.copy(e.a).lerp(e.b, e.u);
+      if (e.type === 'ghost') e.pos.copy(e.home);
+      else e.pos.copy(e.a).lerp(e.b, e.u);
       e.mesh.scale.setScalar(1);
+      e.mesh.position.copy(e.pos);
     }
   }
-  update(dt, t) {
+  // target: where Glover is (ghosts chase him)
+  update(dt, t, target) {
     for (const e of this.items) {
       if (!e.alive) {
         if (e.squish > 0) {
@@ -246,26 +391,61 @@ export class Bumblers {
         }
         continue;
       }
-      const len = e.a.distanceTo(e.b);
-      const prev = e.pos.clone();
-      if (e.pause > 0) e.pause -= dt;
-      else {
-        e.u += (e.dir * 1.6 * dt) / len;
-        if (e.u > 1) { e.u = 1; e.dir = -1; e.pause = 0.6; }
-        if (e.u < 0) { e.u = 0; e.dir = 1; e.pause = 0.6; }
+      const px = e.pos.x, py = e.pos.y, pz = e.pos.z;
+      let headingX = 0, headingZ = 1;
+      if (e.type === 'ghost') {
+        const tv = this._t;
+        let chase = false;
+        if (target) {
+          tv.set(target.x - e.pos.x, 0, target.z - e.pos.z);
+          const d = tv.length();
+          const dHome = Math.hypot(target.x - e.home.x, target.z - e.home.z);
+          chase = dHome < e.range && Math.abs(target.y - e.home.y) < 4;
+          if (chase && d > 0.05) {
+            e.pos.addScaledVector(tv.normalize(), Math.min(d, e.speed * dt));
+            e.pos.y += (target.y - e.pos.y) * Math.min(1, dt * 1.5);
+          }
+        }
+        if (!chase) {
+          tv.set(e.home.x - e.pos.x, e.home.y - e.pos.y, e.home.z - e.pos.z);
+          const d = tv.length();
+          if (d > 0.05) e.pos.addScaledVector(tv.normalize(), Math.min(d, 1.2 * dt));
+        }
+        headingX = (target ? target.x : e.home.x) - e.pos.x;
+        headingZ = (target ? target.z : e.home.z) - e.pos.z;
+      } else {
+        const len = Math.max(0.01, e.a.distanceTo(e.b));
+        if (e.pause > 0) e.pause -= dt;
+        else {
+          e.u += (e.dir * e.speed * dt) / len;
+          if (e.u > 1) { e.u = 1; e.dir = -1; e.pause = 0.6; }
+          if (e.u < 0) { e.u = 0; e.dir = 1; e.pause = 0.6; }
+        }
+        e.pos.copy(e.a).lerp(e.b, e.u);
+        headingX = (e.b.x - e.a.x) * e.dir;
+        headingZ = (e.b.z - e.a.z) * e.dir;
       }
-      e.pos.copy(e.a).lerp(e.b, e.u);
-      e.vel.copy(e.pos).sub(prev).divideScalar(Math.max(dt, 1e-4));
-      const heading = e.dir > 0 ? e.b.clone().sub(e.a) : e.a.clone().sub(e.b);
-      const want = Math.atan2(heading.x, heading.z);
+      e.vel.set((e.pos.x - px) / Math.max(dt, 1e-4), (e.pos.y - py) / Math.max(dt, 1e-4), (e.pos.z - pz) / Math.max(dt, 1e-4));
+
+      // crabs walk sideways
+      let want = Math.atan2(headingX, headingZ);
+      if (e.skin === 'crab') want += Math.PI / 2;
       let d = want - e.mesh.rotation.y;
       while (d > Math.PI) d -= Math.PI * 2;
       while (d < -Math.PI) d += Math.PI * 2;
       e.mesh.rotation.y += d * Math.min(1, dt * 8);
       e.mesh.position.copy(e.pos);
-      e.mesh.position.y += Math.abs(Math.sin(t * 14 + e.u * 9)) * 0.04;
-      e.mesh.userData.key.rotation.z = t * 4;
-      e.mesh.userData.legs.forEach((l, i) => { l.rotation.x = Math.sin(t * 16 + i * 2) * 0.5; });
+      const U = e.mesh.userData;
+      if (e.skin === 'ghost') {
+        e.mesh.position.y += Math.sin(t * 2.4 + e.home.x) * 0.15;
+        U.arms.forEach((a, i) => { a.position.y = 0.85 + Math.sin(t * 5 + i * 3) * 0.08; });
+      } else {
+        e.mesh.position.y += Math.abs(Math.sin(t * 14 + e.u * 9)) * 0.04;
+        if (U.key) U.key.rotation.z = t * 4;
+        if (U.wheels) U.legs.forEach((l) => { l.rotation.x = t * 12; });
+        else U.legs.forEach((l, i) => { l.rotation.x = Math.sin(t * 16 + i * 2) * 0.5; });
+        if (U.claws) U.claws.forEach((c, i) => { c.rotation.z = Math.sin(t * 6 + i * 3) * 0.3; });
+      }
     }
   }
   kill(e) {

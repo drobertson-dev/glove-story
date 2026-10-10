@@ -15,7 +15,7 @@ export const FORMS = {
     label: 'Rubber Ball',
     gravity: 22, restitution: 0.8, rollFriction: 0.9, impactKeep: 0.85, mass: 0.7,
     breakSpeed: Infinity, slap: 15, throwH: 8.5, throwV: 8.5,
-    holdSpeed: 1.0, jumpMul: 1, dribble: true, color: '#ff8a3d',
+    holdSpeed: 1.0, jumpMul: 1, dribble: true, floats: true, color: '#ff8a3d',
   },
   bowling: {
     label: 'Bowling Ball',

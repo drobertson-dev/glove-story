@@ -161,15 +161,89 @@ export class Sound {
         break;
       }
       case 'ui': this.tone({ type: 'triangle', f: 660, f2: 880, dur: 0.08, vol: 0.12 }); break;
+      case 'splash':
+        this.noise({ dur: 0.45, vol: 0.3, freq: 1400, f2: 400, q: 0.6 });
+        this.tone({ type: 'sine', f: 600, f2: 180, dur: 0.2, vol: 0.12 });
+        break;
+      case 'boing':
+        this.tone({ type: 'sine', f: 380, f2: 900, dur: 0.12, vol: 0.2 });
+        this.tone({ type: 'square', f: 760, f2: 300, dur: 0.18, vol: 0.05, at: 0.05 });
+        break;
+      case 'switch':
+        this.tone({ type: 'square', f: 300, dur: 0.06, vol: 0.12 });
+        [523, 784, 1047].forEach((f, i) => this.tone({ type: 'triangle', f, dur: 0.18, vol: 0.12, at: 0.08 + i * 0.07 }));
+        break;
+      case 'bell':
+        this.noise({ dur: 0.08, vol: 0.3, freq: 2000 });
+        [880, 1320, 1760, 2637].forEach((f, i) => this.tone({ type: 'sine', f, dur: 1.4 - i * 0.2, vol: 0.12 - i * 0.02, at: 0.05 }));
+        break;
+      case 'rumble':
+        this.noise({ dur: 1.2, vol: 0.3, freq: 160, type: 'lowpass' });
+        this.tone({ type: 'sawtooth', f: 55, f2: 45, dur: 1.1, vol: 0.06 });
+        break;
+      case 'crumble':
+        this.noise({ dur: 0.5, vol: 0.22, freq: 700, q: 0.6 });
+        for (let i = 0; i < 4; i++) this.noise({ dur: 0.05, vol: 0.15, freq: 2500, at: 0.1 + i * 0.09 });
+        break;
+      case 'ghost':
+        this.tone({ type: 'sine', f: 420, f2: 300, dur: 0.6, vol: 0.06 });
+        break;
     }
   }
 
-  // --- a small bouncy oom-pah tune, sequenced in eighth notes ---
+  // --- little tunes, sequenced in eighth notes ---
+  // melody: midi notes, -1 = hold previous, 0 = rest. chords: [root, fifth, triad] per bar.
+  // bass: per-eighth pattern ('r' root, 'f' fifth, 'o' octave, 0 rest)
+  setSong(name) {
+    this.song = SONGS[name] || SONGS.meadow;
+    this.songStep = 0;
+  }
+
   startMusic() {
-    const B = 132;
-    const step = 60 / B / 2;
-    // midi notes; -1 = hold previous, 0 = rest
-    const melody = [
+    if (!this.song) this.setSong('meadow');
+    const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+    let next = this.ctx.currentTime + 0.1;
+    const out = this.music;
+    const sched = () => {
+      if (!this.ctx || this.ctx.state !== 'running') return;
+      const S = this.song;
+      const step = 60 / S.bpm / 2;
+      if (next < this.ctx.currentTime - 0.1) next = this.ctx.currentTime + 0.05; // skip, don't burst
+      while (next < this.ctx.currentTime + 0.2) {
+        const n = S.melody.length;
+        const idx = this.songStep % n;
+        const bar = Math.floor(idx / 8), beat = idx % 8;
+        const at = next - this.ctx.currentTime;
+        const m = S.melody[idx];
+        if (m > 0) {
+          let len = 1;
+          while (S.melody[(idx + len) % n] === -1) len++;
+          const dur = S.pluck ? step * Math.min(len, 2) * 0.7 : step * len * 0.9;
+          this.tone({ type: S.lead, f: mtof(m), dur, vol: S.leadVol, at, out });
+          this.tone({ type: 'triangle', f: mtof(m + 12), dur: dur * 0.6, vol: S.leadVol * 0.5, at, out });
+        }
+        const [root, fifth, triad] = S.chords[bar % S.chords.length];
+        const bp = S.bass[beat];
+        if (bp) {
+          const note = bp === 'r' ? root : bp === 'f' ? fifth : root + 12;
+          this.tone({ type: 'triangle', f: mtof(note), dur: step * 1.5, vol: 0.2, at, out });
+        }
+        if (S.stabs.includes(beat)) for (const t of triad) this.tone({ type: S.stabWave || 'square', f: mtof(t), dur: step * 0.6, vol: 0.018, at, out });
+        if (S.hats && beat % 2 === 1) this.noise({ dur: 0.04, vol: 0.035, freq: 8000, type: 'highpass', at, out });
+        if (S.kick.includes(beat)) this.tone({ type: 'sine', f: 120, f2: 45, dur: 0.12, vol: 0.18, at, out });
+        if (S.shaker && beat % 2 === 0) this.noise({ dur: 0.05, vol: 0.025, freq: 5000, type: 'bandpass', at, out });
+        next += step;
+        this.songStep++;
+      }
+    };
+    this.musicTimer = setInterval(sched, 40);
+  }
+}
+
+const SONGS = {
+  meadow: {
+    bpm: 132, lead: 'square', leadVol: 0.05,
+    melody: [
       72, 0, 69, 72, 77, 0, 76, 74,
       72, 0, 67, 0, 64, 67, 72, 0,
       74, 0, 69, 74, 77, 0, 76, 74,
@@ -178,41 +252,68 @@ export class Sound {
       79, -1, 76, 0, 72, 74, 76, 0,
       77, 0, 74, 0, 70, 74, 77, 79,
       76, -1, -1, 0, 72, 0, 67, 0,
-    ];
-    const chords = [
+    ],
+    chords: [
       [41, 48, [53, 57, 60]], [36, 43, [52, 55, 60]], [38, 45, [53, 57, 62]], [34, 41, [53, 58, 62]],
       [41, 48, [53, 57, 60]], [36, 43, [52, 55, 60]], [34, 41, [53, 58, 62]], [36, 43, [52, 55, 58]],
-    ];
-    const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
-    let i = 0;
-    let next = this.ctx.currentTime + 0.1;
-    const out = this.music;
-    const sched = () => {
-      if (!this.ctx || this.ctx.state !== 'running') return;
-      if (next < this.ctx.currentTime - 0.1) next = this.ctx.currentTime + 0.05; // skip, don't burst
-      while (next < this.ctx.currentTime + 0.2) {
-        const idx = i % 64;
-        const bar = Math.floor(idx / 8), beat = idx % 8;
-        const at = next - this.ctx.currentTime;
-        const m = melody[idx];
-        if (m > 0) {
-          let len = 1;
-          while (melody[(idx + len) % 64] === -1) len++;
-          this.tone({ type: 'square', f: mtof(m), dur: step * len * 0.9, vol: 0.05, at, out });
-          this.tone({ type: 'triangle', f: mtof(m + 12), dur: step * len * 0.6, vol: 0.025, at, out });
-        }
-        const [root, fifth, triad] = chords[bar];
-        if (beat === 0 || beat === 4) this.tone({ type: 'triangle', f: mtof(root), dur: step * 1.6, vol: 0.2, at, out });
-        if (beat === 2 || beat === 6) {
-          this.tone({ type: 'triangle', f: mtof(fifth), dur: step * 1.6, vol: 0.16, at, out });
-          for (const n of triad) this.tone({ type: 'square', f: mtof(n), dur: step * 0.6, vol: 0.018, at, out });
-        }
-        if (beat % 2 === 1) this.noise({ dur: 0.04, vol: 0.035, freq: 8000, type: 'highpass', at, out });
-        if (beat === 0 || beat === 4) this.tone({ type: 'sine', f: 120, f2: 45, dur: 0.12, vol: 0.18, at, out });
-        next += step;
-        i++;
-      }
-    };
-    this.musicTimer = setInterval(sched, 40);
-  }
-}
+    ],
+    bass: ['r', 0, 'f', 0, 'r', 0, 'f', 0], stabs: [2, 6], kick: [0, 4], hats: true,
+  },
+  lagoon: {
+    // breezy calypso, marimba-ish plucks
+    bpm: 116, lead: 'triangle', leadVol: 0.09, pluck: true,
+    melody: [
+      72, 0, 76, 0, 79, 77, 76, 0,
+      77, 0, 76, 77, 81, 0, 79, 0,
+      79, 77, 76, 74, 71, 0, 74, 0,
+      72, -1, 0, 76, 74, 72, 0, 0,
+      76, 0, 72, 0, 69, 72, 76, 0,
+      77, -1, 76, 74, 72, 0, 69, 0,
+      71, 72, 74, 76, 77, 74, 71, 67,
+      72, -1, -1, 0, 0, 0, 67, 0,
+    ],
+    chords: [
+      [36, 43, [55, 60, 64]], [41, 48, [57, 60, 65]], [43, 50, [55, 59, 62]], [36, 43, [55, 60, 64]],
+      [45, 52, [57, 60, 64]], [41, 48, [57, 60, 65]], [43, 50, [55, 59, 62]], [36, 43, [55, 60, 64]],
+    ],
+    bass: ['r', 0, 0, 'r', 0, 0, 'f', 0], stabs: [1, 3, 5, 7], stabWave: 'triangle', kick: [0, 3, 6], shaker: true,
+  },
+  carnival: {
+    // fast circus oom-pah
+    bpm: 160, lead: 'square', leadVol: 0.045,
+    melody: [
+      79, 78, 79, 0, 74, 0, 79, 0,
+      78, 77, 78, 0, 74, 0, 78, 0,
+      79, 81, 83, 79, 81, 78, 79, 76,
+      76, -1, 72, 0, 76, 0, 79, 0,
+      79, 78, 79, 0, 74, 0, 79, 0,
+      81, 80, 81, 0, 78, 0, 74, 0,
+      79, 83, 86, 83, 79, 78, 76, 74,
+      79, -1, 0, 0, 67, 0, 0, 0,
+    ],
+    chords: [
+      [43, 50, [59, 62, 67]], [38, 45, [57, 62, 66]], [43, 50, [59, 62, 67]], [36, 43, [55, 60, 64]],
+      [43, 50, [59, 62, 67]], [38, 45, [57, 62, 66]], [43, 50, [59, 62, 67]], [43, 50, [59, 62, 67]],
+    ],
+    bass: ['r', 0, 'f', 0, 'r', 0, 'f', 0], stabs: [2, 6], kick: [0, 4], hats: true,
+  },
+  spooky: {
+    // creepy-cute minor waltz-ish
+    bpm: 100, lead: 'sine', leadVol: 0.1,
+    melody: [
+      69, 0, 72, 0, 76, 0, 75, 76,
+      77, -1, 76, 0, 72, 0, 69, 0,
+      65, 0, 69, 0, 72, 0, 71, 72,
+      71, -1, -1, 0, 68, 0, 64, 0,
+      69, 0, 72, 0, 76, 0, 79, 0,
+      77, -1, 74, 0, 77, 0, 81, 0,
+      80, -1, 76, 0, 74, 0, 71, 0,
+      69, -1, -1, 0, 0, 0, 0, 0,
+    ],
+    chords: [
+      [45, 52, [57, 60, 64]], [45, 52, [57, 60, 64]], [41, 48, [57, 60, 65]], [40, 47, [56, 59, 64]],
+      [45, 52, [57, 60, 64]], [38, 45, [57, 62, 65]], [40, 47, [56, 59, 64]], [45, 52, [57, 60, 64]],
+    ],
+    bass: ['r', 0, 0, 0, 'f', 0, 'o', 0], stabs: [2, 6], stabWave: 'triangle', kick: [0], hats: false,
+  },
+};

@@ -367,3 +367,54 @@ h2 {
 @keyframes glow {
   50% { box-shadow: 0 5px 0 rgba(42, 24, 70, 0.55), 0 0 0 8px rgba(255, 255, 255, 0.55); transform: scale(1.06); }
 }
+
+/* world map */
+#select { background: rgba(42, 24, 70, 0.55); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+#level-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(8px, 2vmin, 16px);
+  width: min(880px, 100%);
+}
+@media (max-aspect-ratio: 1/1) { #level-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.level-card {
+  --card: #62c73e;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: clamp(8px, 2vmin, 14px) 6px;
+  border: 4px solid var(--ink);
+  border-radius: 18px;
+  background: linear-gradient(180deg, var(--card), color-mix(in srgb, var(--card) 70%, #2a1846));
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 6px 0 var(--ink);
+  font-family: 'Nunito', sans-serif;
+  pointer-events: auto;
+  transition: transform 0.12s;
+}
+.level-card:not(.locked):hover { transform: translateY(-3px) rotate(-1deg); }
+.level-card:not(.locked):active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
+.level-card.locked { filter: grayscale(0.9) brightness(0.7); cursor: default; }
+.card-icon { font-size: clamp(26px, 7vmin, 46px); line-height: 1.1; filter: drop-shadow(0 3px 0 rgba(0,0,0,.25)); }
+.card-num { font-weight: 900; font-size: clamp(11px, 2.4vmin, 13px); opacity: 0.9; text-transform: uppercase; letter-spacing: 1px; }
+.card-name {
+  font-family: 'Lilita One', sans-serif;
+  font-size: clamp(15px, 3.6vmin, 22px);
+  text-shadow: 0 2px 0 var(--ink), 2px 0 0 var(--ink), -2px 0 0 var(--ink), 0 -2px 0 var(--ink);
+  line-height: 1.1;
+  text-align: center;
+}
+.card-status {
+  margin-top: 4px;
+  background: rgba(42, 24, 70, 0.55);
+  border-radius: 999px;
+  padding: 1px 10px;
+  font-weight: 900;
+  font-size: clamp(11px, 2.4vmin, 14px);
+}
+.level-card.done .card-status { background: var(--gold); color: var(--ink); }
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.btn-row .menu-btn { min-width: 160px; }
