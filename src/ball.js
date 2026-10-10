@@ -9,13 +9,13 @@ export const FORMS = {
     label: 'Crystal Ball',
     gravity: 24, restitution: 0.3, rollFriction: 1.4, impactKeep: 0.55, mass: 1,
     breakSpeed: 13.5, slap: 11, throwH: 8, throwV: 7.5,
-    holdSpeed: 0.92, jumpMul: 0.86, color: '#9fe6ff',
+    holdSpeed: 0.92, jumpMul: 1, color: '#9fe6ff',
   },
   rubber: {
     label: 'Rubber Ball',
     gravity: 22, restitution: 0.8, rollFriction: 0.9, impactKeep: 0.85, mass: 0.7,
     breakSpeed: Infinity, slap: 15, throwH: 8.5, throwV: 8.5,
-    holdSpeed: 1.0, jumpMul: 0.9, dribble: true, color: '#ff8a3d',
+    holdSpeed: 1.0, jumpMul: 1, dribble: true, color: '#ff8a3d',
   },
   bowling: {
     label: 'Bowling Ball',

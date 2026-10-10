@@ -13,8 +13,10 @@ import { formatControls } from './hud.js';
 const G_R = 0.42;        // Glover's collision sphere radius (centre sits at feet + G_R)
 const GRAV = 30;
 const RUN = 5.6;
-const JUMP_V = 10.5;
-const JUMP2_V = 9.5;
+const JUMP_V = 11;
+const JUMP2_V = 10;
+const COYOTE = 0.15;       // you can still jump this long after running off an edge
+const FALL_RESCUE = 11;    // falling this far below your last safe spot = rescued
 const SUPER_V = 19.5;
 const DT = 1 / 120;
 const MAX_HEARTS = 3;
@@ -93,12 +95,13 @@ export class Game {
       grounded: false, groundCol: null, coyote: 0, jumpBuffer: 0, canDouble: false, jumpFlag: false,
       holding: false, riding: false, slamming: false, slamHang: 0, airT: 0, launchT: 0,
       hearts: MAX_HEARTS, invuln: 0, hurtT: 0,
+      safe: new THREE.Vector3(), safeYaw: Math.PI, safeT: 0, wallN: new THREE.Vector3(),
       anim: { flipStart: false, spinStart: false, landImpact: 0 },
     };
     this.b = {
       pos: new THREE.Vector3(), vel: new THREE.Vector3(), form: 'crystal', state: 'free',
       grounded: false, groundN: new THREE.Vector3(0, 1, 0), groundCol: null, omega: new THREE.Vector3(),
-      ignoreT: 0, soundT: 0, dribble: 0, dribbleBounced: false, airT: 0,
+      ignoreT: 0, soundT: 0, dribble: 0, dribbleBounced: false, airT: 0, groundY: 0,
     };
 
     this.state = 'title';
@@ -146,7 +149,9 @@ export class Game {
     g.yaw = sp.yaw;
     g.grounded = true; g.groundCol = null; g.holding = false; g.riding = false; g.slamming = false;
     g.hearts = MAX_HEARTS; g.invuln = 0; g.hurtT = 0; g.jumpBuffer = 0; g.launchT = 0;
+    g.safe.copy(sp.pos); g.safeYaw = sp.yaw; g.canDouble = true;
     b.pos.copy(sp.ball);
+    b.groundY = sp.ball.y;
     b.vel.set(0, 0, 0);
     b.omega.set(0, 0, 0);
     b.state = 'free';
@@ -199,7 +204,7 @@ export class Game {
 
     if (this.state === 'playing') {
       this.levelTime += dt;
-      if (inp.pressed.jump) this.g.jumpBuffer = 0.14;
+      if (inp.pressed.jump) this.g.jumpBuffer = 0.2;
       // remember presses until a physics step consumes them (high-refresh screens
       // can run frames with zero steps)
       this.wantGrab = this.wantGrab || inp.pressed.grab;
@@ -235,6 +240,12 @@ export class Game {
         }
       }
       // keep movers going in the background
+      this.simTime += dt;
+      stepMovers(this.world, dt, this.simTime);
+    } else if (this.state === 'rescue') {
+      this.rescueT -= dt;
+      if (!this.rescueDone && this.rescueT < 0.35) { this.finishRescue(); this.ui.fade(false); }
+      if (this.rescueT <= 0) this.state = 'playing';
       this.simTime += dt;
       stepMovers(this.world, dt, this.simTime);
     } else if (this.state === 'complete') {
@@ -282,8 +293,62 @@ export class Game {
     this.interactions(dt);
 
     if (this.state !== 'playing') return;
-    if (g.pos.y < this.L.killY) this.loseLife('Whoops!', 'You fell');
-    else if (b.state === 'free' && b.pos.y < this.L.killY) this.loseLife('Ball lost!', 'Keep it on solid ground');
+    const gloverGone = g.pos.y < this.L.killY || (!g.riding && g.vel.y < 0 && g.pos.y < g.safe.y - FALL_RESCUE);
+    const ballGone = b.state === 'free' && (b.pos.y < this.L.killY || (b.vel.y < 0 && b.pos.y < b.groundY - FALL_RESCUE));
+    if (gloverGone) this.rescue('glover');
+    else if (ballGone) this.rescue('ball');
+  }
+
+  // Falling off (you or the ball) costs a heart instead of a whole life:
+  // you pop back to the last safe spot, and a lost ball pops back into your hand.
+  rescue(who) {
+    if (this.state !== 'playing') return;
+    const g = this.g;
+    if (who === 'ball' && g.riding) who = 'glover'; // rode it off the edge: bring both back
+    g.hearts -= 1;
+    if (g.hearts <= 0) { this.loseLife(who === 'ball' ? 'Ball lost!' : 'Whoops!', 'Out of hearts'); return; }
+    this.state = 'rescue';
+    this.rescueT = 0.75;
+    this.rescueWho = who;
+    this.rescueDone = false;
+    this.ui.fade(true);
+    this.sound.play('nope');
+    buzz(40);
+    this.hud.toast(who === 'ball' ? 'Ball lost!' : 'Whoops!', '-1 heart', 1.4);
+    this.input.releaseAll();
+  }
+
+  finishRescue() {
+    const g = this.g, b = this.b;
+    this.rescueDone = true;
+    if (this.rescueWho === 'glover') {
+      const carry = g.holding || g.riding;
+      g.pos.copy(g.safe);
+      g.vel.set(0, 0, 0);
+      g.yaw = g.safeYaw;
+      g.grounded = true; g.slamming = false; g.riding = false;
+      g.invuln = 1.2;
+      if (carry || b.state === 'gone') this.giveBallBack();
+      this.cam.snap(g.pos, g.yaw);
+    } else {
+      this.giveBallBack();
+    }
+  }
+
+  // the ball reappears in Glover's hands (a lost crystal ball comes back whole)
+  giveBallBack() {
+    const g = this.g, b = this.b;
+    b.state = 'held';
+    g.holding = true;
+    g.riding = false;
+    b.vel.set(0, 0, 0);
+    b.omega.set(0, 0, 0);
+    b.pos.set(g.pos.x, g.pos.y + 1, g.pos.z);
+    b.groundY = g.pos.y;
+    this.ballVis.root.visible = true;
+    this.placeHeldBall(0);
+    this.fx.burst(b.pos, 16, { color: [0xffffff, FORMS[b.form].color], size: 0.08, life: 0.6, speed: 3, up: 2 });
+    this.sound.play('potion');
   }
 
   forward(out) {
@@ -408,7 +473,7 @@ export class Game {
       return;
     }
 
-    if (g.grounded) { g.coyote = 0.1; g.airT = 0; }
+    if (g.grounded) { g.coyote = COYOTE; g.airT = 0; g.canDouble = true; }
     else { g.coyote = Math.max(0, g.coyote - dt); g.airT += dt; }
 
     // horizontal control
@@ -417,7 +482,7 @@ export class Game {
     const tx = _move.x * maxSpeed, tz = _move.z * maxSpeed;
     let accel;
     if (g.grounded) accel = mag > 0.05 ? 36 : 32;
-    else accel = mag > 0.05 ? 20 * (g.launchT > 0 ? 0.35 : 1) : 0.6;
+    else accel = mag > 0.05 ? 27 * (g.launchT > 0 ? 0.35 : 1) : 0.6;
     if (g.hurtT > 0) accel = g.grounded ? 30 : 0;
     if (g.slamming) { g.vel.x = 0; g.vel.z = 0; }
     else {
@@ -435,7 +500,7 @@ export class Game {
           g.vel.y = JUMP_V * jm;
           if (g.groundCol && g.groundCol.isMover) { g.vel.x += g.groundCol.vel.x; g.vel.z += g.groundCol.vel.z; }
           g.grounded = false; g.coyote = 0; g.jumpBuffer = 0;
-          g.canDouble = !g.holding;
+          g.canDouble = true;
           g.jumpFlag = true;
           this.sound.play('jump');
         } else {
@@ -443,7 +508,7 @@ export class Game {
           this.sound.play('nope');
           this.message('heavy', 'Too heavy to jump!', 'Throw or drop the bowling ball first', 4);
         }
-      } else if (g.canDouble && !g.holding) {
+      } else if (g.canDouble && !(g.holding && f.jumpMul === 0)) {
         g.vel.y = JUMP2_V;
         g.canDouble = false;
         g.jumpBuffer = 0;
@@ -460,7 +525,7 @@ export class Game {
       else g.vel.y = -26;
     } else {
       let gm = 1;
-      if (g.vel.y < 0) gm = 1.15;
+      if (g.vel.y < 0) gm = 1.0;
       else if (g.jumpFlag && !inp.held.jump && inp.device !== 'touch') gm = 2.2;
       g.vel.y = Math.max(-32, g.vel.y - GRAV * gm * dt);
     }
@@ -473,11 +538,12 @@ export class Game {
     // collide
     const wasGrounded = g.grounded;
     g.grounded = false;
-    let landSpeed = 0, hurtFloor = null, padCol = null, groundCol = null;
+    let landSpeed = 0, hurtFloor = null, padCol = null, groundCol = null, hitWall = false;
     _c.set(g.pos.x, g.pos.y + G_R, g.pos.z);
     const preVy = g.vel.y;
     this.physics.resolveSphere(_c, G_R, (n, depth, col) => {
       const vn = g.vel.dot(n);
+      if (Math.abs(n.y) < 0.5) { hitWall = true; g.wallN.set(n.x, 0, n.z).normalize(); }
       if (n.y > 0.55) {
         g.grounded = true;
         groundCol = col;
@@ -500,7 +566,36 @@ export class Game {
         g.vel.y = 0;
       }
     }
+    // ledge assist: came up just short of a ledge while pushing toward it? climb on
+    if (!g.grounded && hitWall && !g.slamming && g.hurtT <= 0 && g.vel.y < 6) {
+      const push = -(_move.x * g.wallN.x + _move.z * g.wallN.z);
+      if (push > 0.3) {
+        _p.set(g.pos.x - g.wallN.x * 0.45, g.pos.y + 1.3, g.pos.z - g.wallN.z * 0.45);
+        const hit = this.physics.raycast(_p, DOWN, 1.5);
+        if (hit && hit.t > 0 && hit.normal.y > 0.55 && !hit.collider.hurt) {
+          const top = _p.y - hit.t;
+          const rise = top - g.pos.y;
+          if (rise > 0.05 && rise < 0.75) {
+            g.pos.set(g.pos.x - g.wallN.x * 0.3, top + 0.02, g.pos.z - g.wallN.z * 0.3);
+            g.vel.y = 0;
+            g.grounded = true;
+            groundCol = hit.collider;
+            g.anim.landImpact = 0.4;
+            this.sound.play('land');
+          }
+        }
+      }
+    }
     g.groundCol = groundCol;
+
+    // remember the last solid, well-supported place we stood (for rescues)
+    if (g.grounded && groundCol && !groundCol.isMover && !groundCol.hurt && !groundCol.pad && !groundCol.crumble) {
+      g.safeT -= dt;
+      if (g.safeT <= 0) {
+        g.safeT = 0.2;
+        if (this.wellSupported(g.pos, 0.6)) { g.safe.copy(g.pos); g.safeYaw = g.yaw; }
+      }
+    }
 
     if (g.grounded && !wasGrounded) this.onGloverLand(landSpeed);
 
@@ -514,6 +609,17 @@ export class Game {
         g.vel.y = 7; g.grounded = false;
       }
     }
+  }
+
+  // is there floor all around this point (not teetering on an edge)?
+  wellSupported(pos, r) {
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      _ax.set(pos.x + Math.cos(a) * r, pos.y + 0.6, pos.z + Math.sin(a) * r);
+      const hit = this.physics.raycast(_ax, DOWN, 1.2);
+      if (!hit || hit.normal.y < 0.55 || hit.collider.hurt || hit.collider.isMover) return false;
+    }
+    return true;
   }
 
   onGloverLand(speed) {
@@ -623,6 +729,7 @@ export class Game {
     if (b.grounded) {
       b.airT = 0;
       const col = b.groundCol;
+      b.groundY = b.pos.y;
       _rel.copy(b.vel).sub(col.vel);
       const vn = _rel.dot(b.groundN);
       _t.copy(b.groundN).multiplyScalar(vn);
@@ -767,7 +874,14 @@ export class Game {
     this.g.riding = false;
     this.shake = 0.3;
     buzz([40, 30, 60]);
-    this.loseLife('Smashed!', 'Crystal can\'t take big drops');
+    const g = this.g;
+    g.hearts -= 1;
+    if (g.hearts <= 0) { this.loseLife('Smashed!', 'Out of hearts'); return; }
+    this.hud.toast('Smashed!', 'Crystal can\'t take big drops. -1 heart', 1.8);
+    this.state = 'rescue';
+    this.rescueT = 0.9;
+    this.rescueWho = 'ball';
+    this.rescueDone = false;
   }
 
   smashCrates(p) {
@@ -1031,7 +1145,7 @@ export class Game {
     }
 
     // HUD
-    if (this.state === 'playing' || this.state === 'dying') {
+    if (this.state === 'playing' || this.state === 'dying' || this.state === 'rescue') {
       this.hud.setLives(this.lives);
       this.hud.setHearts(Math.max(0, g.hearts), MAX_HEARTS);
       this.hud.setGaribs(this.garibCount, this.garibs.total);

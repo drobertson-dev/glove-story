@@ -72,7 +72,7 @@ function refreshHelp() {
 }
 input.onDeviceChange = () => {
   refreshHelp();
-  setTouch(game.state === 'playing' || game.state === 'dying');
+  setTouch(game.state === 'playing' || game.state === 'dying' || game.state === 'rescue');
 };
 document.body.classList.toggle('touch-mode', input.device === 'touch');
 refreshHelp();
@@ -185,7 +185,7 @@ function frame(now) {
   const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
   last = now;
   adaptQuality(dt);
-  input.enabled = game.state === 'playing' || game.state === 'dying';
+  input.enabled = game.state === 'playing' || game.state === 'dying' || game.state === 'rescue';
   input.update();
   menuKeys();
   if (game.state !== 'paused') game.update(dt);

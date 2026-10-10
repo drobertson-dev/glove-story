@@ -38,8 +38,9 @@ export const LEVEL1 = {
   crates: (() => {
     const out = [];
     const s = 0.85;
+    // six high: too tall to double-jump over, so you need the bowling ball
     for (const x of [-0.85, 0, 0.85])
-      for (let k = 0; k < 3; k++) out.push({ x, y: 8 + s / 2 + k * s, z: -99.2, size: s });
+      for (let k = 0; k < 6; k++) out.push({ x, y: 8 + s / 2 + k * s, z: -99.2, size: s });
     return out;
   })(),
 
@@ -79,8 +80,8 @@ export const LEVEL1 = {
     [0, 10.2, -79], [0, 10.2, -82], [0, 10.2, -85],
     // I
     [3.5, 8.9, -96], [-1.2, 8.9, -95.5],
-    // on top of the crate wall
-    [0, 11.4, -99.2],
+    // just past the crate wall
+    [0, 8.9, -102.6],
     // mover
     [0, 9.6, -109.6],
     // L
@@ -109,7 +110,7 @@ export const LEVEL1 = {
     { x: -2.8, y: 0, z: 3.2, text: 'This is your <b>Crystal Ball</b>! Walk up and press {GRAB} to pick it up. Press it again to put it down.' },
     { x: 2.8, y: 0, z: -4.5, text: 'Get the ball to the <b>magic portal</b> at the end. Careful: crystal shatters if it falls too far!' },
     { x: -3.2, y: 0, z: -22, text: 'A Bumbler! Jump on its head, or {SLAP} the ball into it.' },
-    { x: 3.2, y: 3, z: -46.8, text: 'Gap ahead! Run at the edge and press {GRAB} to <b>throw</b> the ball over, then jump after it. Press {JUMP} twice to double jump!' },
+    { x: 3.2, y: 3, z: -46.8, text: 'Gap ahead! Jump across with the ball (tap {JUMP} twice to double jump), or <b>throw</b> it over with {GRAB} while running.' },
     { x: -2.6, y: 2, z: -54.2, text: 'Potions change your ball! <b>Rubber</b> bounces, and if you double-jump onto it you get a super bounce!' },
     { x: 2.9, y: 2, z: -60.2, text: 'Bounce pad! Hold the ball and hop on, or roll the ball onto it.' },
     { x: -2.6, y: 8, z: -73.8, text: 'Ouch, thistles! Put the ball down, hop on top of it, and ride it across.' },
