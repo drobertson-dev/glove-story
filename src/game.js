@@ -39,6 +39,15 @@ const _bump = new THREE.Vector3();
 const DOWN = new THREE.Vector3(0, -1, 0);
 const UP = new THREE.Vector3(0, 1, 0);
 
+// one-time hints, remembered on the device so they don't nag on every level
+const HINT_SECONDS = 5;
+const hints = (() => {
+  try { return JSON.parse(localStorage.getItem('glove-story-hints') || '{}'); } catch { return {}; }
+})();
+function saveHints() {
+  try { localStorage.setItem('glove-story-hints', JSON.stringify(hints)); } catch { /* private mode */ }
+}
+
 // phone rumble (Android); browsers ignore it until the player has tapped
 function buzz(pattern) {
   if (navigator.vibrate && navigator.userActivation?.hasBeenActive) navigator.vibrate(pattern);
@@ -187,7 +196,7 @@ export class Game {
   }
 
   // what the GRAB button would do right now, for the floating hint bubble
-  updatePrompt() {
+  updatePrompt(dt) {
     const g = this.g, b = this.b;
     const mode = this.input.labelMode();
     let text = null;
@@ -195,7 +204,12 @@ export class Game {
     if (this.state === 'playing' && !g.riding && (b.state === 'free' || b.state === 'held')) {
       inReach = !g.holding && b.state === 'free' && this.ballInReach(0.8);
       if (inReach) text = formatControls('{GRAB} Pick up', mode);
-      else if (g.holding && this.tips.releases < 4) text = formatControls(this.willThrow() ? '{GRAB} Throw' : '{GRAB} Put down', mode);
+      else if (g.holding && (hints.holdSeen || 0) < HINT_SECONDS) {
+        // explain throw / put down for the first few seconds of carrying, once ever
+        text = formatControls(this.willThrow() ? '{GRAB} Throw' : '{GRAB} Put down', mode);
+        hints.holdSeen = (hints.holdSeen || 0) + dt;
+        if (hints.holdSeen >= HINT_SECONDS) saveHints();
+      }
       else if (!g.holding && this.tips.pickups === 0) text = 'Your ball!';
     }
     this.input.setGrabHint(inReach && this.input.device === 'touch');
@@ -1360,7 +1374,7 @@ export class Game {
         this.hud.showSign(sign ? formatControls(sign.text, mode) : null);
       }
       this.updateBallArrow();
-      this.updatePrompt();
+      this.updatePrompt(dt);
     } else {
       this.hud.showSign(null);
       this.hud.setArrow(null);
