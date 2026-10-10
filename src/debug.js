@@ -107,7 +107,11 @@ export function installDebug(G, render, renderer) {
     where('mover-far');
     goTo(0, -115.5, 0.3); where('island-L');
     goTo(-3.3, -116.0, 0.2); steps(20); where('crystal');
-    goTo(0, -119.5, 0.3); goTo(0, -122.5, 0.3, 4); steps(120);
+    goTo(-0.5, -118.6, 0.3);
+    // let the last bumbler wander off before crossing its path
+    const bug = G.bumblers.items[2];
+    for (let i = 0; i < 600 && bug.alive && Math.abs(bug.pos.x - G.g.pos.x) < 2.6; i++) frame();
+    goTo(0, -122.5, 0.3, 4); steps(120);
     where('end');
     return { out, log: T.log.filter((x) => !x.startsWith('step')).join(' '), stats: G.state === 'complete' ? G.stats() : null };
   };

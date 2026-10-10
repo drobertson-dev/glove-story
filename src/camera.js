@@ -52,7 +52,7 @@ export class FollowCam {
 
     // follow target; lag a bit vertically so jumps don't jerk the view
     _want.set(pos.x, pos.y + 1.0, pos.z);
-    if (holding) { _want.x += Math.sin(yaw) * 0.8; _want.z += Math.cos(yaw) * 0.8; }
+    if (holding) { _want.x += Math.sin(yaw) * 0.3; _want.z += Math.cos(yaw) * 0.3; }
     if (ball && ballFree) {
       const bx = ball.x - pos.x, bz = ball.z - pos.z;
       const bd = Math.hypot(bx, bz);
@@ -67,7 +67,7 @@ export class FollowCam {
     if (this.target.y > _want.y + 3) this.target.y = _want.y + 3;
 
     this.dist = portrait ? 9.5 : 7.2;
-    this.boost += ((holding ? 0.32 : 0) - this.boost) * Math.min(1, dt * 3);
+    this.boost += ((holding ? 0.06 : 0) - this.boost) * Math.min(1, dt * 3);
     this.apply(physics, dt);
   }
 

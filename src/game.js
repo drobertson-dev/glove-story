@@ -18,6 +18,10 @@ const JUMP2_V = 9.5;
 const SUPER_V = 19.5;
 const DT = 1 / 120;
 const MAX_HEARTS = 3;
+// where the ball sits while carried: tucked under the thumb, at Glover's side
+const HOLD_SIDE = -0.85;   // along Glover's local x (the thumb side)
+const HOLD_AHEAD = 0.3;
+const HOLD_LIFT = 0.22;    // off the ground
 const START_LIVES = 5;
 
 const _move = new THREE.Vector3();
@@ -290,10 +294,17 @@ export class Game {
     const g = this.g, b = this.b, f = FORMS[b.form];
     if (this.wantGrab && !g.riding) {
       if (g.holding && !this.willThrow()) {
-        // put it down gently right where it is
+        // set it down in front (handy for hopping on top), or right where it is
         g.holding = false;
         b.state = 'free';
         b.vel.set(0, 0, 0);
+        this.forward(_fwd);
+        _p.set(g.pos.x + _fwd.x * (G_R + BALL_R + 0.2), g.pos.y + BALL_R + 0.05, g.pos.z + _fwd.z * (G_R + BALL_R + 0.2));
+        const under = this.physics.raycast(_p, DOWN, 1.5);
+        if (under && under.normal.y > 0.5) {
+          this.physics.resolveSphere(_p, BALL_R);
+          b.pos.copy(_p);
+        }
         b.ignoreT = 0.3;
         this.tips.releases++;
         this.sound.play('grab');
@@ -648,7 +659,12 @@ export class Game {
   placeHeldBall(dt) {
     const g = this.g, b = this.b, f = FORMS[b.form];
     this.forward(_fwd);
-    const want = _t.set(g.pos.x + _fwd.x * (G_R + BALL_R + 0.1), g.pos.y + BALL_R, g.pos.z + _fwd.z * (G_R + BALL_R + 0.1));
+    const cy = Math.cos(g.yaw), sy = Math.sin(g.yaw);
+    const want = _t.set(
+      g.pos.x + cy * HOLD_SIDE + sy * HOLD_AHEAD,
+      g.pos.y + BALL_R + HOLD_LIFT,
+      g.pos.z - sy * HOLD_SIDE + cy * HOLD_AHEAD,
+    );
     const impactSpeed = Math.hypot(g.vel.x, g.vel.z);
     // follow the ground under the ball so it rides up slopes and steps
     if (g.grounded) {
@@ -656,7 +672,7 @@ export class Game {
       const hit = this.physics.raycast(_p, DOWN, 2.0);
       if (hit && hit.normal.y > 0.5) {
         const gy = _p.y - hit.t;
-        if (gy > g.pos.y - 0.6 && gy < g.pos.y + 1.0) want.y = gy + BALL_R;
+        if (gy > g.pos.y - 0.6 && gy < g.pos.y + 1.0) want.y = gy + BALL_R + HOLD_LIFT;
       }
     }
     b.pos.copy(want);
@@ -678,12 +694,7 @@ export class Game {
       }
     }
     b.vel.copy(g.vel);
-    // rolling look
-    const gs = Math.hypot(g.vel.x, g.vel.z);
-    if (g.grounded && gs > 0.1) {
-      _rel.set(g.vel.x, 0, g.vel.z);
-      b.omega.crossVectors(UP, _rel).divideScalar(BALL_R);
-    } else b.omega.multiplyScalar(0.9);
+    b.omega.multiplyScalar(0.9); // carried, not rolled
     if (smash && (impactSpeed > 2 || g.vel.y < -3)) this.smashCrates(b.pos);
   }
 
@@ -963,7 +974,7 @@ export class Game {
     this.model.animate(dt, {
       speed: g.riding ? Math.hypot(b.vel.x, b.vel.z) : hs,
       grounded: g.grounded, vy: g.vel.y, holding: g.holding, riding: g.riding,
-      dribble: g.holding && !!f.dribble, dribblePhase: b.dribble,
+      dribble: g.holding && !!f.dribble, dribblePhase: b.dribble, heavy: g.holding && b.form === 'bowling',
       flipStart: g.anim.flipStart, spinStart: g.anim.spinStart, landImpact: g.anim.landImpact,
       slam: g.slamming, hurt: g.hurtT > 0, flicker: g.invuln > 0 && this.state === 'playing',
     });
@@ -980,7 +991,7 @@ export class Game {
     else this.ballVis.root.position.copy(b.pos);
     if (g.holding && f.dribble) {
       const d = Math.abs(Math.sin(b.dribble));
-      this.ballVis.root.position.y += d * 0.6;
+      this.ballVis.root.position.y += d * 0.7 - HOLD_LIFT; // bounce off the ground beside Glover
       if (d < 0.15 && !b.dribbleBounced) { b.dribbleBounced = true; this.sound.play('bounce', 3); }
       if (d > 0.5) b.dribbleBounced = false;
     }

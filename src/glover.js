@@ -150,14 +150,14 @@ export class GloverModel {
     }
 
     if (s.holding) {
-      // lean right over the ball, palm resting on top of it
-      lean = 0.95;
-      thumbX = -0.6;
-      thumbZ = -0.5;
-      if (s.grounded) { hipA = [hipA[0] + 0.55, hipA[1] + 0.55]; kneeA = [kneeA[0] + 0.5, kneeA[1] + 0.5]; }
+      // stand tall, thumb wrapped over the ball tucked at our side;
+      // lean away from it a little to balance the weight
+      thumbZ = -1.85;
+      thumbX = -0.3;
+      sway = s.heavy ? -0.16 : -0.06;
       if (s.dribble) {
-        thumbX = -1.2 + Math.sin(s.dribblePhase) * 0.6;
-        bob += Math.max(0, Math.sin(s.dribblePhase)) * 0.03;
+        thumbZ = -1.55 - Math.abs(Math.sin(s.dribblePhase)) * 0.5;
+        bob += Math.max(0, Math.sin(s.dribblePhase * 2)) * 0.02;
       }
     }
 
