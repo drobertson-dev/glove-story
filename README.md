@@ -2,6 +2,8 @@
 
 A little 3D glove-and-ball platformer that runs in a web browser (phones included), made as a homage to *Glover* (1998).
 
+**Play it:** https://glove-story-ochre.vercel.app
+
 **The goal:** pick up your ball and carry it to the portal at the end of the level.
 
 You play a magic glove guiding a crystal ball through the floating islands of **Sunny Isles**. Along the way you:
@@ -39,6 +41,10 @@ npm run dev
 The dev server also shows a **Network** address, such as `http://192.168.x.x:5173`. Open that address on a phone on the same Wi-Fi to play it right away.
 
 ## Sharing it
+
+This repo is connected to Vercel, so every push to `main` redeploys https://glove-story-ochre.vercel.app automatically.
+
+To host it somewhere else:
 
 ```bash
 npm run build
