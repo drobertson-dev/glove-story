@@ -29,19 +29,7 @@ export class Sound {
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
-      this.ctx = new AC();
-      this.master = this.ctx.createGain();
-      this.master.gain.value = 0.7;
-      this.master.connect(this.ctx.destination);
-      this.sfx = this.ctx.createGain();
-      this.sfx.gain.value = 0.9;
-      this.sfx.connect(this.master);
-      this.music = this.ctx.createGain();
-      this.music.gain.value = this.musicOn ? 0.32 : 0;
-      this.music.connect(this.master);
-      this.noiseBuf = this.ctx.createBuffer(1, this.ctx.sampleRate, this.ctx.sampleRate);
-      const d = this.noiseBuf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      this.buildGraph(new AC());
       this.startMusic();
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
@@ -56,6 +44,38 @@ export class Sound {
     src.buffer = this.ctx.createBuffer(1, 1, 22050);
     src.connect(this.ctx.destination);
     src.start(0);
+  }
+
+  // sfx + music -> master -> limiter -> speakers. The limiter stops loud moments
+  // (music plus a pile of sound effects) from clipping into crackles.
+  buildGraph(ctx) {
+    this.ctx = ctx;
+    this.limiter = ctx.createDynamicsCompressor();
+    this.limiter.threshold.value = -3; // only touches peaks; a safety net, not a sound
+    this.limiter.knee.value = 4;
+    this.limiter.ratio.value = 20;
+    this.limiter.attack.value = 0.002;
+    this.limiter.release.value = 0.2;
+    this.limiter.connect(ctx.destination);
+    this.master = ctx.createGain();
+    this.master.gain.value = 0.7;
+    this.master.connect(this.limiter);
+    this.sfx = ctx.createGain();
+    this.sfx.gain.value = 0.9;
+    this.sfx.connect(this.master);
+    this.music = ctx.createGain();
+    this.music.gain.value = this.musicOn ? 0.32 : 0;
+    this.music.connect(this.master);
+    this.noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const d = this.noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+
+  // Sounds start a hair in the future so the audio thread never has to jump into
+  // the middle of an envelope (that jump is an audible pop).
+  startTime(at, when) {
+    const soonest = this.ctx.currentTime + 0.015;
+    return Math.max(soonest, when ?? soonest + at);
   }
 
   // After switching apps, a phone call or a lock screen, iOS leaves the audio
@@ -92,9 +112,10 @@ export class Sound {
     if (this.music) this.music.gain.setTargetAtTime(on ? 0.32 : 0, this.ctx.currentTime, 0.1);
   }
 
-  tone({ type = 'square', f = 440, f2 = null, dur = 0.15, vol = 0.2, at = 0, attack = 0.005, out = null }) {
+  tone({ type = 'square', f = 440, f2 = null, dur = 0.15, vol = 0.2, at = 0, when = null, attack = 0.008, out = null }) {
     if (!this.ctx) return;
-    const t = this.ctx.currentTime + at;
+    const t = this.startTime(at, when);
+    attack = Math.min(attack, dur * 0.5);
     const o = this.ctx.createOscillator();
     const g = this.ctx.createGain();
     o.type = type;
@@ -102,15 +123,16 @@ export class Sound {
     if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(vol, t + attack);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+    g.gain.linearRampToValueAtTime(0, t + dur + 0.015);
     o.connect(g).connect(out || this.sfx);
     o.start(t);
-    o.stop(t + dur + 0.02);
+    o.stop(t + dur + 0.03);
   }
 
-  noise({ dur = 0.15, vol = 0.2, freq = 1200, q = 1, type = 'bandpass', at = 0, f2 = null, out = null }) {
+  noise({ dur = 0.15, vol = 0.2, freq = 1200, q = 1, type = 'bandpass', at = 0, when = null, f2 = null, attack = 0.004, out = null }) {
     if (!this.ctx) return;
-    const t = this.ctx.currentTime + at;
+    const t = this.startTime(at, when);
     const s = this.ctx.createBufferSource();
     s.buffer = this.noiseBuf;
     s.loop = true;
@@ -120,11 +142,13 @@ export class Sound {
     if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t + dur);
     fl.Q.value = q;
     const g = this.ctx.createGain();
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + Math.min(attack, dur * 0.3));
+    g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+    g.gain.linearRampToValueAtTime(0, t + dur + 0.015);
     s.connect(fl).connect(g).connect(out || this.sfx);
     s.start(t, Math.random() * 0.5);
-    s.stop(t + dur + 0.02);
+    s.stop(t + dur + 0.03);
   }
 
   play(name, arg) {
@@ -132,8 +156,8 @@ export class Sound {
     switch (name) {
       case 'jump': this.tone({ type: 'square', f: 300, f2: 620, dur: 0.14, vol: 0.09 }); break;
       case 'jump2': this.tone({ type: 'square', f: 460, f2: 980, dur: 0.16, vol: 0.09 }); this.noise({ dur: 0.2, vol: 0.05, freq: 3000, f2: 6000 }); break;
-      case 'land': this.noise({ dur: 0.08, vol: 0.12, freq: 400, type: 'lowpass' }); break;
-      case 'step': this.noise({ dur: 0.04, vol: 0.04, freq: 900, q: 2 }); break;
+      case 'land': this.noise({ dur: 0.1, vol: 0.1, freq: 350, type: 'lowpass', attack: 0.01 }); break;
+      case 'step': this.tone({ type: 'sine', f: 150, f2: 80, dur: 0.07, vol: 0.05, attack: 0.012 }); break;
       case 'garib': {
         const now = performance.now() / 1000;
         this.garibStreak = now - this.garibT < 1.2 ? Math.min(this.garibStreak + 1, 10) : 0;
@@ -255,42 +279,49 @@ export class Sound {
 
   startMusic() {
     if (!this.song) this.setSong('meadow');
-    const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
-    let next = this.ctx.currentTime + 0.1;
-    const out = this.music;
-    const sched = () => {
+    this.nextNote = this.ctx.currentTime + 0.1;
+    this.musicTimer = setInterval(() => {
       if (!this.ctx || this.ctx.state !== 'running') return;
-      const S = this.song;
-      const step = 60 / S.bpm / 2;
-      if (next < this.ctx.currentTime - 0.1) next = this.ctx.currentTime + 0.05; // skip, don't burst
-      while (next < this.ctx.currentTime + 0.2) {
-        const n = S.melody.length;
-        const idx = this.songStep % n;
-        const bar = Math.floor(idx / 8), beat = idx % 8;
-        const at = next - this.ctx.currentTime;
-        const m = S.melody[idx];
-        if (m > 0) {
-          let len = 1;
-          while (S.melody[(idx + len) % n] === -1) len++;
-          const dur = S.pluck ? step * Math.min(len, 2) * 0.7 : step * len * 0.9;
-          this.tone({ type: S.lead, f: mtof(m), dur, vol: S.leadVol, at, out });
-          this.tone({ type: 'triangle', f: mtof(m + 12), dur: dur * 0.6, vol: S.leadVol * 0.5, at, out });
-        }
-        const [root, fifth, triad] = S.chords[bar % S.chords.length];
-        const bp = S.bass[beat];
-        if (bp) {
-          const note = bp === 'r' ? root : bp === 'f' ? fifth : root + 12;
-          this.tone({ type: 'triangle', f: mtof(note), dur: step * 1.5, vol: 0.2, at, out });
-        }
-        if (S.stabs.includes(beat)) for (const t of triad) this.tone({ type: S.stabWave || 'square', f: mtof(t), dur: step * 0.6, vol: 0.018, at, out });
-        if (S.hats && beat % 2 === 1) this.noise({ dur: 0.04, vol: 0.035, freq: 8000, type: 'highpass', at, out });
-        if (S.kick.includes(beat)) this.tone({ type: 'sine', f: 120, f2: 45, dur: 0.12, vol: 0.18, at, out });
-        if (S.shaker && beat % 2 === 0) this.noise({ dur: 0.05, vol: 0.025, freq: 5000, type: 'bandpass', at, out });
-        next += step;
-        this.songStep++;
+      this.scheduleMusic(this.ctx.currentTime + 0.3);
+    }, 50);
+  }
+
+  // Queue up every eighth note that falls before `until`. Notes we're already too
+  // late for are skipped rather than started mid-envelope.
+  scheduleMusic(until) {
+    const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+    const out = this.music;
+    const S = this.song;
+    const step = 60 / S.bpm / 2;
+    const tooLate = this.ctx.currentTime + 0.02;
+    if (this.nextNote < tooLate - 1) this.nextNote = tooLate; // came back from a long pause
+    while (this.nextNote < until) {
+      const when = this.nextNote;
+      this.nextNote += step;
+      const n = S.melody.length;
+      const idx = this.songStep % n;
+      this.songStep++;
+      if (when < tooLate) continue;
+      const bar = Math.floor(idx / 8), beat = idx % 8;
+      const m = S.melody[idx];
+      if (m > 0) {
+        let len = 1;
+        while (S.melody[(idx + len) % n] === -1) len++;
+        const dur = S.pluck ? step * Math.min(len, 2) * 0.7 : step * len * 0.9;
+        this.tone({ type: S.lead, f: mtof(m), dur, vol: S.leadVol, when, out, attack: 0.012 });
+        this.tone({ type: 'triangle', f: mtof(m + 12), dur: dur * 0.6, vol: S.leadVol * 0.5, when, out, attack: 0.012 });
       }
-    };
-    this.musicTimer = setInterval(sched, 40);
+      const [root, fifth, triad] = S.chords[bar % S.chords.length];
+      const bp = S.bass[beat];
+      if (bp) {
+        const note = bp === 'r' ? root : bp === 'f' ? fifth : root + 12;
+        this.tone({ type: 'triangle', f: mtof(note), dur: step * 1.5, vol: 0.2, when, out, attack: 0.015 });
+      }
+      if (S.stabs.includes(beat)) for (const t of triad) this.tone({ type: S.stabWave || 'square', f: mtof(t), dur: step * 0.6, vol: 0.018, when, out, attack: 0.01 });
+      if (S.hats && beat % 2 === 1) this.noise({ dur: 0.04, vol: 0.035, freq: 8000, type: 'highpass', when, out, attack: 0.002 });
+      if (S.kick.includes(beat)) this.tone({ type: 'sine', f: 120, f2: 45, dur: 0.12, vol: 0.18, when, out, attack: 0.004 });
+      if (S.shaker && beat % 2 === 0) this.noise({ dur: 0.05, vol: 0.025, freq: 5000, type: 'bandpass', when, out, attack: 0.003 });
+    }
   }
 }
 

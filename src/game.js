@@ -1307,7 +1307,7 @@ export class Game {
     // footsteps
     if (g.grounded && hs > 1 && this.state === 'playing') {
       const ph = Math.floor(this.model.phase / Math.PI);
-      if (ph !== this.stepPhase) { this.stepPhase = ph; this.sound.play('step'); }
+      if (ph !== this.stepPhase) { this.stepPhase = ph; if (ph % 2 === 0) this.sound.play('step'); }
     }
 
     // ball visual
